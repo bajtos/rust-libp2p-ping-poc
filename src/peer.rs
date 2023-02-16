@@ -133,7 +133,48 @@ impl Client {
             .expect("Command receiver not to be dropped.");
         receiver.await.expect("Sender not be dropped.")
     }
+
+    // NEW API FOR ZINNIA
+
+    pub async fn dial_protocol(
+        &mut self,
+        peer_id: PeerId,
+        peer_addr: Multiaddr,
+        proto_name: &[u8],
+    ) -> Result<StreamHandle, Box<dyn Error + Send>> {
+        todo!(
+            "TODO: dial {peer_id} at {peer_addr} and start protocol {}",
+            String::from_utf8_lossy(proto_name)
+        );
+    }
+
+    pub async fn write_all(
+        &mut self,
+        handle: &StreamHandle,
+        buf: &[u8],
+    ) -> Result<(), Box<dyn Error + Send>> {
+        todo!("TODO: write {} bytes to {:?}", buf.len(), handle)
+    }
+
+    pub async fn close_writer(
+        &mut self,
+        handle: &mut StreamHandle,
+    ) -> Result<(), Box<dyn Error + Send>> {
+        todo!("TODO: close writer {:?}", handle)
+    }
+
+    pub async fn read(
+        &mut self,
+        handle: &mut StreamHandle,
+        buf: &[u8],
+    ) -> Result<usize, Box<dyn Error + Send>> {
+        todo!("TODO: read up to {} bytes from {:?}", buf.len(), handle)
+    }
 }
+
+/// A handle representing a substream opened by our network behaviour
+#[derive(Debug)]
+pub struct StreamHandle;
 
 pub struct EventLoop {
     swarm: Swarm<ComposedBehaviour>,
