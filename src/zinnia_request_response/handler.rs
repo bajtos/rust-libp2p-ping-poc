@@ -1,3 +1,5 @@
+// This code is based on libp2p with the following notice:
+//
 // Copyright 2020 Parity Technologies (UK) Ltd.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a

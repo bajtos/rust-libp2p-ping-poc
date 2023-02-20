@@ -1,3 +1,5 @@
+// This code is based on libp2p with the following notice:
+//
 // Copyright 2020 Parity Technologies (UK) Ltd.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -248,7 +250,7 @@ impl RequestResponse {
         let request = RequestProtocol {
             request_id,
             protocols: protocols.into(),
-            request,
+            payload: request,
         };
 
         if let Some(request) = self.try_send_request(peer, request) {

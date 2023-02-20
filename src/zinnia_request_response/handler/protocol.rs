@@ -1,27 +1,5 @@
-// Copyright 2020 Parity Technologies (UK) Ltd.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation
-// the rights to use, copy, modify, merge, publish, distribute, sublicense,
-// and/or sell copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-// DEALINGS IN THE SOFTWARE.
-
-//! The definition of a request/response protocol via inbound
-//! and outbound substream upgrades. The inbound upgrade
-//! receives a request and sends a response, whereas the
-//! outbound upgrade send a request and receives a response.
+//! The definition of a request/response protocol via outbound substream
+//! upgrades. The outbound upgrade sends a request and receives a response.
 
 use crate::zinnia_request_response::RequestId;
 
@@ -46,13 +24,15 @@ pub type ProtocolInfo = SmallVec<[u8; 16]>;
 pub struct RequestProtocol {
     pub(crate) protocols: SmallVec<[ProtocolInfo; 2]>,
     pub(crate) request_id: RequestId,
-    pub(crate) request: RequestPayload,
+    pub(crate) payload: RequestPayload,
 }
 
 impl fmt::Debug for RequestProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RequestProtocol")
             .field("request_id", &self.request_id)
+            .field("protocols", &self.protocols)
+            .field("payload", &self.payload)
             .finish()
     }
 }
@@ -74,7 +54,7 @@ impl OutboundUpgrade<NegotiatedSubstream> for RequestProtocol {
     fn upgrade_outbound(self, mut io: NegotiatedSubstream, _protocol: Self::Info) -> Self::Future {
         async move {
             // 1. Write the request payload
-            io.write_all(&self.request).await?;
+            io.write_all(&self.payload).await?;
             io.flush().await?;
 
             // 2. Signal the end of request substream
