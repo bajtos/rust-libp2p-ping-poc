@@ -126,15 +126,9 @@ pub enum InboundFailure {
     /// [`RequestResponse::send_response`] is not called in a
     /// timely manner.
     Timeout,
-    // /// The connection closed before a response could be send.
-    // ConnectionClosed,
     /// The local peer supports none of the protocols requested
     /// by the remote.
     UnsupportedProtocols,
-    // /// The local peer failed to respond to an inbound request
-    // /// due to the [`ResponseChannel`] being dropped instead of
-    // /// being passed to [`RequestResponse::send_response`].
-    // ResponseOmission,
 }
 
 impl fmt::Display for InboundFailure {
@@ -143,17 +137,10 @@ impl fmt::Display for InboundFailure {
             InboundFailure::Timeout => {
                 write!(f, "Timeout while receiving request or sending response")
             }
-            // InboundFailure::ConnectionClosed => {
-            //     write!(f, "Connection was closed before a response could be sent")
-            // }
             InboundFailure::UnsupportedProtocols => write!(
                 f,
                 "The local peer supports none of the protocols requested by the remote"
             ),
-            // InboundFailure::ResponseOmission => write!(
-            //     f,
-            //     "The response channel was dropped without sending a response to the remote"
-            // ),
         }
     }
 }
@@ -299,25 +286,6 @@ where
 
         request_id
     }
-
-    // /// Initiates sending a response to an inbound request.
-    // ///
-    // /// If the [`ResponseChannel`] is already closed due to a timeout or the
-    // /// connection being closed, the response is returned as an `Err` for
-    // /// further handling. Once the response has been successfully sent on the
-    // /// corresponding connection, [`RequestResponseEvent::ResponseSent`] is
-    // /// emitted. In all other cases [`RequestResponseEvent::InboundFailure`]
-    // /// will be or has been emitted.
-    // ///
-    // /// The provided `ResponseChannel` is obtained from an inbound
-    // /// [`RequestResponseMessage::Request`].
-    // pub fn send_response(
-    //     &mut self,
-    //     ch: ResponseChannel<TCodec::Response>,
-    //     rs: TCodec::Response,
-    // ) -> Result<(), TCodec::Response> {
-    //     ch.sender.send(rs)
-    // }
 
     /// Adds a known address for a peer that can be used for
     /// dialing attempts by the `Swarm`, i.e. is returned
@@ -628,40 +596,6 @@ where
                         RequestResponseEvent::Message { peer, message },
                     ));
             }
-            // RequestResponseHandlerEvent::Request {
-            //     request_id,
-            //     request,
-            //     sender,
-            // } => {
-            //     let channel = ResponseChannel { sender };
-            //     let message = RequestResponseMessage::Request {
-            //         request_id,
-            //         request,
-            //         channel,
-            //     };
-            //     self.pending_events
-            //         .push_back(NetworkBehaviourAction::GenerateEvent(
-            //             RequestResponseEvent::Message { peer, message },
-            //         ));
-
-            //     match self.get_connection_mut(&peer, connection) {
-            //         Some(connection) => {
-            //             let inserted = connection.pending_outbound_responses.insert(request_id);
-            //             debug_assert!(inserted, "Expect id of new request to be unknown.");
-            //         }
-            //         // Connection closed after `RequestResponseEvent::Request` has been emitted.
-            //         None => {
-            //             self.pending_events
-            //                 .push_back(NetworkBehaviourAction::GenerateEvent(
-            //                     RequestResponseEvent::InboundFailure {
-            //                         peer,
-            //                         request_id,
-            //                         error: InboundFailure::ConnectionClosed,
-            //                     },
-            //                 ));
-            //         }
-            //     }
-            // }
             RequestResponseHandlerEvent::OutboundTimeout(request_id) => {
                 let removed = self.remove_pending_inbound_response(&peer, connection, &request_id);
                 debug_assert!(

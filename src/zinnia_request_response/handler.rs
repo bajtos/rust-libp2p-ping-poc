@@ -144,22 +144,11 @@ pub enum RequestResponseHandlerEvent<TCodec>
 where
     TCodec: RequestResponseCodec,
 {
-    /// A request has been received.
-    // Request {
-    //     request_id: RequestId,
-    //     request: TCodec::Request,
-    //     sender: oneshot::Sender<TCodec::Response>,
-    // },
     /// A response has been received.
     Response {
         request_id: RequestId,
         response: TCodec::Response,
     },
-    /// A response to an inbound request has been sent.
-    // ResponseSent(RequestId),
-    /// A response to an inbound request was omitted as a result
-    /// of dropping the response `sender` of an inbound `Request`.
-    // ResponseOmission(RequestId),
     /// An outbound request timed out while sending the request
     /// or waiting for the response.
     OutboundTimeout(RequestId),
@@ -175,14 +164,6 @@ where
 impl<TCodec: RequestResponseCodec> fmt::Debug for RequestResponseHandlerEvent<TCodec> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            // RequestResponseHandlerEvent::Request {
-            //     request_id,
-            //     request: _,
-            //     sender: _,
-            // } => f
-            //     .debug_struct("RequestResponseHandlerEvent::Request")
-            //     .field("request_id", request_id)
-            //     .finish(),
             RequestResponseHandlerEvent::Response {
                 request_id,
                 response: _,
@@ -190,14 +171,6 @@ impl<TCodec: RequestResponseCodec> fmt::Debug for RequestResponseHandlerEvent<TC
                 .debug_struct("RequestResponseHandlerEvent::Response")
                 .field("request_id", request_id)
                 .finish(),
-            // RequestResponseHandlerEvent::ResponseSent(request_id) => f
-            //     .debug_tuple("RequestResponseHandlerEvent::ResponseSent")
-            //     .field(request_id)
-            //     .finish(),
-            // RequestResponseHandlerEvent::ResponseOmission(request_id) => f
-            //     .debug_tuple("RequestResponseHandlerEvent::ResponseOmission")
-            //     .field(request_id)
-            //     .finish(),
             RequestResponseHandlerEvent::OutboundTimeout(request_id) => f
                 .debug_tuple("RequestResponseHandlerEvent::OutboundTimeout")
                 .field(request_id)
