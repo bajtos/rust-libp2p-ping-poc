@@ -338,6 +338,11 @@ impl EventLoop {
                 peer_addr,
                 sender,
             } => {
+                if self.swarm.is_connected(&peer_id) {
+                    let _ = sender.send(Ok(()));
+                    return;
+                }
+
                 if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
                     self.swarm
                         .behaviour_mut()
