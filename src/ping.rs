@@ -21,13 +21,13 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-use async_trait::async_trait;
-use libp2p::futures::{io, AsyncReadExt, AsyncWriteExt};
-use libp2p::futures::{AsyncRead, AsyncWrite};
-use libp2p::request_response::{
+use crate::zinnia_request_response::{
     ProtocolName, ProtocolSupport, RequestId, RequestResponse, RequestResponseCodec,
     RequestResponseConfig, RequestResponseEvent, RequestResponseMessage,
 };
+use async_trait::async_trait;
+use libp2p::futures::{io, AsyncReadExt, AsyncWriteExt};
+use libp2p::futures::{AsyncRead, AsyncWrite};
 use rand::{distributions, thread_rng, Rng};
 
 // Custom ping protocol implementation

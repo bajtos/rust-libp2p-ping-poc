@@ -7,6 +7,7 @@ use tokio::spawn;
 
 mod peer;
 mod ping;
+mod zinnia_request_response;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
