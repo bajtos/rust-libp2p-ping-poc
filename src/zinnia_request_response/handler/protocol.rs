@@ -81,11 +81,7 @@ where
     type Error = io::Error;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
-    fn upgrade_outbound(
-        mut self,
-        mut io: NegotiatedSubstream,
-        protocol: Self::Info,
-    ) -> Self::Future {
+    fn upgrade_outbound(self, mut io: NegotiatedSubstream, _protocol: Self::Info) -> Self::Future {
         async move {
             // 1. Write the request payload
             io.write_all(&self.request).await?;
@@ -94,9 +90,9 @@ where
             // 2. Signal the end of request substream
             io.close().await?;
 
-            // 3. Read back the response
+            // 3. Read back the response - at most 10 MB
             let mut response: ResponsePayload = Default::default();
-            io.read_to_end(&mut response).await?;
+            io.take(10 * 1024 * 1024).read_to_end(&mut response).await?;
             Ok(response)
         }
         .boxed()
