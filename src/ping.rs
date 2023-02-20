@@ -22,12 +22,9 @@
 // DEALINGS IN THE SOFTWARE.
 
 use crate::zinnia_request_response::{
-    ProtocolName, RequestId, RequestResponse, RequestResponseCodec, RequestResponseConfig,
+    ProtocolName, RequestId, RequestPayload, RequestResponse, RequestResponseConfig,
     RequestResponseEvent, RequestResponseMessage,
 };
-use async_trait::async_trait;
-use libp2p::futures::{io, AsyncReadExt, AsyncWriteExt};
-use libp2p::futures::{AsyncRead, AsyncWrite};
 use rand::{distributions, thread_rng, Rng};
 
 // Custom ping protocol implementation
@@ -36,40 +33,18 @@ pub const PROTOCOL_NAME: &[u8] = libp2p::ping::PROTOCOL_NAME;
 pub const PING_SIZE: usize = 32;
 pub type PingPayload = [u8; PING_SIZE];
 
-pub type PingBehaviour = RequestResponse<PingCodec>;
+pub type PingBehaviour = RequestResponse<PingProtocol>;
 
 pub fn new(cfg: RequestResponseConfig) -> PingBehaviour {
-    RequestResponse::<PingCodec>::new(PingCodec(), cfg)
+    RequestResponse::<PingProtocol>::new(cfg)
 }
 
-pub type PingEvent = RequestResponseEvent<PingResponse>;
-pub type PingMessage = RequestResponseMessage<PingResponse>;
+pub type PingEvent = RequestResponseEvent;
+pub type PingMessage = RequestResponseMessage;
 pub type PingRequestId = RequestId;
 
 #[derive(Debug, Clone)]
 pub struct PingProtocol;
-
-#[derive(Clone)]
-pub struct PingCodec();
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PingRequest(PingPayload);
-
-impl PingRequest {
-    pub fn new() -> Self {
-        let payload: PingPayload = thread_rng().sample(distributions::Standard);
-        Self(payload)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PingResponse(PingPayload);
-
-impl PartialEq<PingRequest> for PingResponse {
-    fn eq(&self, other: &PingRequest) -> bool {
-        self.0 == other.0
-    }
-}
 
 impl ProtocolName for PingProtocol {
     fn protocol_name(&self) -> &[u8] {
@@ -77,55 +52,7 @@ impl ProtocolName for PingProtocol {
     }
 }
 
-#[async_trait]
-impl RequestResponseCodec for PingCodec {
-    type Protocol = PingProtocol;
-    type Request = PingRequest;
-    type Response = PingResponse;
-
-    async fn read_request<T>(&mut self, _: &PingProtocol, io: &mut T) -> io::Result<Self::Request>
-    where
-        T: AsyncRead + Unpin + Send,
-    {
-        let mut payload: PingPayload = Default::default();
-        io.read_exact(&mut payload).await?;
-        Ok(PingRequest(payload))
-    }
-
-    async fn read_response<T>(&mut self, _: &PingProtocol, io: &mut T) -> io::Result<Self::Response>
-    where
-        T: AsyncRead + Unpin + Send,
-    {
-        let mut payload: PingPayload = Default::default();
-        io.read_exact(&mut payload).await?;
-        Ok(PingResponse(payload))
-    }
-
-    async fn write_request<T>(
-        &mut self,
-        _: &PingProtocol,
-        io: &mut T,
-        PingRequest(data): PingRequest,
-    ) -> io::Result<()>
-    where
-        T: AsyncWrite + Unpin + Send,
-    {
-        io.write_all(&data).await?;
-        io.flush().await?;
-        Ok(())
-    }
-
-    async fn write_response<T>(
-        &mut self,
-        _: &PingProtocol,
-        io: &mut T,
-        PingResponse(data): PingResponse,
-    ) -> io::Result<()>
-    where
-        T: AsyncWrite + Unpin + Send,
-    {
-        io.write_all(&data).await?;
-        io.flush().await?;
-        Ok(())
-    }
+pub fn new_ping_payload() -> RequestPayload {
+    let payload: PingPayload = thread_rng().sample(distributions::Standard);
+    payload.into()
 }

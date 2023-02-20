@@ -35,7 +35,8 @@ use libp2p::swarm::{ConnectionHandlerUpgrErr, NetworkBehaviour, Swarm, SwarmEven
 use libp2p::yamux;
 use libp2p::Transport;
 
-use crate::ping::{self, PingBehaviour, PingEvent, PingMessage, PingRequest, PingRequestId};
+use crate::ping::{self, new_ping_payload, PingBehaviour, PingEvent, PingMessage, PingRequestId};
+use crate::zinnia_request_response::RequestPayload;
 
 /// Creates the network components, namely:
 ///
@@ -198,7 +199,7 @@ pub struct EventLoop {
 }
 
 pub struct PendingPing {
-    request: PingRequest,
+    request: RequestPayload,
     started: Instant,
     sender: oneshot::Sender<Result<Duration, Box<dyn Error + Send>>>,
 }
@@ -349,7 +350,7 @@ impl EventLoop {
             }
 
             Command::Ping { peer, sender } => {
-                let request = PingRequest::new();
+                let request = new_ping_payload();
                 let started = Instant::now();
 
                 let request_id = self.swarm.behaviour_mut().ping.send_request(

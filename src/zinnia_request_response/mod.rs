@@ -18,10 +18,9 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-pub mod codec;
 pub mod handler;
 
-pub use codec::{ProtocolName, RequestResponseCodec};
+pub use handler::{ProtocolName, RequestPayload, ResponsePayload};
 
 use handler::{RequestProtocol, RequestResponseHandler, RequestResponseHandlerEvent};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
@@ -40,7 +39,7 @@ use std::{
 
 /// An inbound request or response.
 #[derive(Debug)]
-pub enum RequestResponseMessage<TResponse> {
+pub enum RequestResponseMessage {
     /// A response message.
     Response {
         /// The ID of the request that produced this response.
@@ -48,19 +47,19 @@ pub enum RequestResponseMessage<TResponse> {
         /// See [`RequestResponse::send_request`].
         request_id: RequestId,
         /// The response message.
-        response: TResponse,
+        response: ResponsePayload,
     },
 }
 
 /// The events emitted by a [`RequestResponse`] protocol.
 #[derive(Debug)]
-pub enum RequestResponseEvent<TResponse> {
+pub enum RequestResponseEvent {
     /// An incoming message (request or response).
     Message {
         /// The peer who sent the message.
         peer: PeerId,
         /// The incoming message.
-        message: RequestResponseMessage<TResponse>,
+        message: RequestResponseMessage,
     },
     /// An outbound request failed.
     OutboundFailure {
@@ -196,22 +195,17 @@ impl RequestResponseConfig {
 }
 
 /// A request/response protocol for some message codec.
-pub struct RequestResponse<TCodec>
+pub struct RequestResponse<TProtocolInfo>
 where
-    TCodec: RequestResponseCodec + Clone + Send + 'static,
+    TProtocolInfo: ProtocolName + Clone + Send + 'static,
 {
     /// The next (local) request ID.
     next_request_id: RequestId,
     /// The protocol configuration.
     config: RequestResponseConfig,
-    /// The protocol codec for reading and writing requests and responses.
-    codec: TCodec,
     /// Pending events to return from `poll`.
     pending_events: VecDeque<
-        NetworkBehaviourAction<
-            RequestResponseEvent<TCodec::Response>,
-            RequestResponseHandler<TCodec>,
-        >,
+        NetworkBehaviourAction<RequestResponseEvent, RequestResponseHandler<TProtocolInfo>>,
     >,
     /// The currently connected peers, their pending outbound and inbound responses and their known,
     /// reachable addresses, if any.
@@ -220,20 +214,19 @@ where
     addresses: HashMap<PeerId, SmallVec<[Multiaddr; 6]>>,
     /// Requests that have not yet been sent and are waiting for a connection
     /// to be established.
-    pending_outbound_requests: HashMap<PeerId, SmallVec<[RequestProtocol<TCodec>; 10]>>,
+    pending_outbound_requests: HashMap<PeerId, SmallVec<[RequestProtocol<TProtocolInfo>; 10]>>,
 }
 
-impl<TCodec> RequestResponse<TCodec>
+impl<TProtocolInfo> RequestResponse<TProtocolInfo>
 where
-    TCodec: RequestResponseCodec + Clone + Send + 'static,
+    TProtocolInfo: ProtocolName + Clone + Send + 'static,
 {
     /// Creates a new `RequestResponse` behaviour for the given
     /// codec and configuration.
-    pub fn new(codec: TCodec, cfg: RequestResponseConfig) -> Self {
+    pub fn new(cfg: RequestResponseConfig) -> Self {
         RequestResponse {
             next_request_id: RequestId(1),
             config: cfg,
-            codec,
             pending_events: VecDeque::new(),
             connected: HashMap::new(),
             pending_outbound_requests: HashMap::new(),
@@ -256,13 +249,12 @@ where
     pub fn send_request(
         &mut self,
         peer: &PeerId,
-        protocols: &[TCodec::Protocol],
-        request: TCodec::Request,
+        protocols: &[TProtocolInfo],
+        request: RequestPayload,
     ) -> RequestId {
         let request_id = self.next_request_id();
         let request = RequestProtocol {
             request_id,
-            codec: self.codec.clone(),
             protocols: protocols.into(),
             request,
         };
@@ -351,8 +343,8 @@ where
     fn try_send_request(
         &mut self,
         peer: &PeerId,
-        request: RequestProtocol<TCodec>,
-    ) -> Option<RequestProtocol<TCodec>> {
+        request: RequestProtocol<TProtocolInfo>,
+    ) -> Option<RequestProtocol<TProtocolInfo>> {
         if let Some(connections) = self.connected.get_mut(peer) {
             if connections.is_empty() {
                 return Some(request);
@@ -518,12 +510,12 @@ where
     }
 }
 
-impl<TCodec> NetworkBehaviour for RequestResponse<TCodec>
+impl<TProtocolInfo> NetworkBehaviour for RequestResponse<TProtocolInfo>
 where
-    TCodec: RequestResponseCodec + Send + Clone + 'static,
+    TProtocolInfo: ProtocolName + Send + Clone + 'static,
 {
-    type ConnectionHandler = RequestResponseHandler<TCodec>;
-    type OutEvent = RequestResponseEvent<TCodec::Response>;
+    type ConnectionHandler = RequestResponseHandler<TProtocolInfo>;
+    type OutEvent = RequestResponseEvent;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         RequestResponseHandler::new(

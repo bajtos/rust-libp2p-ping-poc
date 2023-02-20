@@ -20,7 +20,8 @@
 
 mod protocol;
 
-use super::codec::RequestResponseCodec;
+pub use self::protocol::{ProtocolName, RequestPayload, ResponsePayload};
+
 use super::{RequestId, EMPTY_QUEUE_SHRINK_THRESHOLD};
 
 use libp2p::swarm::handler::{
@@ -44,9 +45,9 @@ use std::{
 
 /// A connection handler of a `RequestResponse` protocol.
 #[doc(hidden)]
-pub struct RequestResponseHandler<TCodec>
+pub struct RequestResponseHandler<TProtocolInfo>
 where
-    TCodec: RequestResponseCodec,
+    TProtocolInfo: ProtocolName,
 {
     /// The keep-alive timeout of idle connections. A connection is considered
     /// idle if there are no outbound substreams.
@@ -59,14 +60,14 @@ where
     /// A pending fatal error that results in the connection being closed.
     pending_error: Option<ConnectionHandlerUpgrErr<io::Error>>,
     /// Queue of events to emit in `poll()`.
-    pending_events: VecDeque<RequestResponseHandlerEvent<TCodec>>,
+    pending_events: VecDeque<RequestResponseHandlerEvent>,
     /// Outbound upgrades waiting to be emitted as an `OutboundSubstreamRequest`.
-    outbound: VecDeque<RequestProtocol<TCodec>>,
+    outbound: VecDeque<RequestProtocol<TProtocolInfo>>,
 }
 
-impl<TCodec> RequestResponseHandler<TCodec>
+impl<TProtocolInfo> RequestResponseHandler<TProtocolInfo>
 where
-    TCodec: RequestResponseCodec + Send + Clone + 'static,
+    TProtocolInfo: ProtocolName + Send + Clone + 'static,
 {
     pub(super) fn new(keep_alive_timeout: Duration, substream_timeout: Duration) -> Self {
         Self {
@@ -140,14 +141,11 @@ where
 
 /// The events emitted by the [`RequestResponseHandler`].
 #[doc(hidden)]
-pub enum RequestResponseHandlerEvent<TCodec>
-where
-    TCodec: RequestResponseCodec,
-{
+pub enum RequestResponseHandlerEvent {
     /// A response has been received.
     Response {
         request_id: RequestId,
-        response: TCodec::Response,
+        response: ResponsePayload,
     },
     /// An outbound request timed out while sending the request
     /// or waiting for the response.
@@ -161,7 +159,7 @@ where
     InboundUnsupportedProtocols,
 }
 
-impl<TCodec: RequestResponseCodec> fmt::Debug for RequestResponseHandlerEvent<TCodec> {
+impl fmt::Debug for RequestResponseHandlerEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RequestResponseHandlerEvent::Response {
@@ -189,15 +187,15 @@ impl<TCodec: RequestResponseCodec> fmt::Debug for RequestResponseHandlerEvent<TC
     }
 }
 
-impl<TCodec> ConnectionHandler for RequestResponseHandler<TCodec>
+impl<TProtocolInfo> ConnectionHandler for RequestResponseHandler<TProtocolInfo>
 where
-    TCodec: RequestResponseCodec + Send + Clone + 'static,
+    TProtocolInfo: ProtocolName + Send + Clone + 'static,
 {
-    type InEvent = RequestProtocol<TCodec>;
-    type OutEvent = RequestResponseHandlerEvent<TCodec>;
+    type InEvent = RequestProtocol<TProtocolInfo>;
+    type OutEvent = RequestResponseHandlerEvent;
     type Error = ConnectionHandlerUpgrErr<io::Error>;
     type InboundProtocol = DeniedUpgrade;
-    type OutboundProtocol = RequestProtocol<TCodec>;
+    type OutboundProtocol = RequestProtocol<TProtocolInfo>;
     type OutboundOpenInfo = RequestId;
     type InboundOpenInfo = ();
 
@@ -217,8 +215,14 @@ where
     fn poll(
         &mut self,
         _cx: &mut Context<'_>,
-    ) -> Poll<ConnectionHandlerEvent<RequestProtocol<TCodec>, RequestId, Self::OutEvent, Self::Error>>
-    {
+    ) -> Poll<
+        ConnectionHandlerEvent<
+            RequestProtocol<TProtocolInfo>,
+            RequestId,
+            Self::OutEvent,
+            Self::Error,
+        >,
+    > {
         // Check for a pending (fatal) error.
         if let Some(err) = self.pending_error.take() {
             // The handler will not be polled again by the `Swarm`.

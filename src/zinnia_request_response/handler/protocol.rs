@@ -23,8 +23,9 @@
 //! receives a request and sends a response, whereas the
 //! outbound upgrade send a request and receives a response.
 
-use crate::zinnia_request_response::codec::RequestResponseCodec;
 use crate::zinnia_request_response::RequestId;
+
+pub use libp2p::core::upgrade::ProtocolName;
 
 use libp2p::core::upgrade::{OutboundUpgrade, UpgradeInfo};
 use libp2p::futures::{future::BoxFuture, prelude::*};
@@ -33,22 +34,25 @@ use smallvec::SmallVec;
 
 use std::{fmt, io};
 
+// FIXME: Can we use `[u8]` instead? How to avoid closing when sending the data between threads?
+pub type RequestPayload = Vec<u8>;
+pub type ResponsePayload = Vec<u8>;
+
 /// Request substream upgrade protocol.
 ///
 /// Sends a request and receives a response.
-pub struct RequestProtocol<TCodec>
+pub struct RequestProtocol<TProtocolInfo>
 where
-    TCodec: RequestResponseCodec,
+    TProtocolInfo: ProtocolName,
 {
-    pub(crate) codec: TCodec,
-    pub(crate) protocols: SmallVec<[TCodec::Protocol; 2]>,
+    pub(crate) protocols: SmallVec<[TProtocolInfo; 2]>,
     pub(crate) request_id: RequestId,
-    pub(crate) request: TCodec::Request,
+    pub(crate) request: RequestPayload,
 }
 
-impl<TCodec> fmt::Debug for RequestProtocol<TCodec>
+impl<TProtocolInfo> fmt::Debug for RequestProtocol<TProtocolInfo>
 where
-    TCodec: RequestResponseCodec,
+    TProtocolInfo: ProtocolName + Send + Clone + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RequestProtocol")
@@ -57,11 +61,11 @@ where
     }
 }
 
-impl<TCodec> UpgradeInfo for RequestProtocol<TCodec>
+impl<TProtocolInfo> UpgradeInfo for RequestProtocol<TProtocolInfo>
 where
-    TCodec: RequestResponseCodec,
+    TProtocolInfo: ProtocolName + Send + Clone + 'static,
 {
-    type Info = TCodec::Protocol;
+    type Info = TProtocolInfo;
     type InfoIter = smallvec::IntoIter<[Self::Info; 2]>;
 
     fn protocol_info(&self) -> Self::InfoIter {
@@ -69,11 +73,11 @@ where
     }
 }
 
-impl<TCodec> OutboundUpgrade<NegotiatedSubstream> for RequestProtocol<TCodec>
+impl<TProtocolInfo> OutboundUpgrade<NegotiatedSubstream> for RequestProtocol<TProtocolInfo>
 where
-    TCodec: RequestResponseCodec + Send + 'static,
+    TProtocolInfo: ProtocolName + Send + Clone + 'static,
 {
-    type Output = TCodec::Response;
+    type Output = ResponsePayload;
     type Error = io::Error;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
@@ -83,11 +87,16 @@ where
         protocol: Self::Info,
     ) -> Self::Future {
         async move {
-            let write = self.codec.write_request(&protocol, &mut io, self.request);
-            write.await?;
+            // 1. Write the request payload
+            io.write_all(&self.request).await?;
+            io.flush().await?;
+
+            // 2. Signal the end of request substream
             io.close().await?;
-            let read = self.codec.read_response(&protocol, &mut io);
-            let response = read.await?;
+
+            // 3. Read back the response
+            let mut response: ResponsePayload = Default::default();
+            io.read_to_end(&mut response).await?;
             Ok(response)
         }
         .boxed()
