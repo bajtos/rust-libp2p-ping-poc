@@ -26,52 +26,12 @@
 use crate::zinnia_request_response::codec::RequestResponseCodec;
 use crate::zinnia_request_response::RequestId;
 
-use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade, UpgradeInfo};
+use libp2p::core::upgrade::{OutboundUpgrade, UpgradeInfo};
 use libp2p::futures::{future::BoxFuture, prelude::*};
 use libp2p::swarm::NegotiatedSubstream;
 use smallvec::SmallVec;
 
 use std::{fmt, io};
-
-/// Response substream upgrade protocol.
-///
-/// Receives a request and sends a response.
-#[derive(Debug)]
-pub struct ResponseProtocol<TCodec>
-where
-    TCodec: RequestResponseCodec,
-{
-    #[allow(dead_code)]
-    pub(crate) codec: TCodec,
-    #[allow(dead_code)]
-    pub(crate) request_id: RequestId,
-}
-
-impl<TCodec> UpgradeInfo for ResponseProtocol<TCodec>
-where
-    TCodec: RequestResponseCodec,
-{
-    type Info = TCodec::Protocol;
-    // We don't accept any inbound requests
-    type InfoIter = [Self::Info; 0];
-
-    fn protocol_info(&self) -> Self::InfoIter {
-        Default::default()
-    }
-}
-
-impl<TCodec> InboundUpgrade<NegotiatedSubstream> for ResponseProtocol<TCodec>
-where
-    TCodec: RequestResponseCodec + Send + 'static,
-{
-    type Output = bool;
-    type Error = io::Error;
-    type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
-
-    fn upgrade_inbound(self, _io: NegotiatedSubstream, _protocol: Self::Info) -> Self::Future {
-        unreachable!("Zinnia does not accept inbound requests")
-    }
-}
 
 /// Request substream upgrade protocol.
 ///

@@ -24,12 +24,11 @@ use super::codec::RequestResponseCodec;
 use super::{RequestId, EMPTY_QUEUE_SHRINK_THRESHOLD};
 
 use libp2p::swarm::handler::{
-    ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
-    ListenUpgradeError,
+    ConnectionEvent, DialUpgradeError, FullyNegotiatedOutbound, ListenUpgradeError,
 };
-pub use protocol::{RequestProtocol, ResponseProtocol};
+pub use protocol::RequestProtocol;
 
-use libp2p::core::upgrade::{NegotiationError, UpgradeError};
+use libp2p::core::upgrade::{DeniedUpgrade, NegotiationError, UpgradeError};
 use libp2p::swarm::{
     handler::{ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, KeepAlive},
     SubstreamProtocol,
@@ -39,10 +38,6 @@ use std::time::Instant;
 use std::{
     collections::VecDeque,
     fmt, io,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
     task::{Context, Poll},
     time::Duration,
 };
@@ -53,8 +48,6 @@ pub struct RequestResponseHandler<TCodec>
 where
     TCodec: RequestResponseCodec,
 {
-    /// The request/response message codec.
-    codec: TCodec,
     /// The keep-alive timeout of idle connections. A connection is considered
     /// idle if there are no outbound substreams.
     keep_alive_timeout: Duration,
@@ -69,42 +62,21 @@ where
     pending_events: VecDeque<RequestResponseHandlerEvent<TCodec>>,
     /// Outbound upgrades waiting to be emitted as an `OutboundSubstreamRequest`.
     outbound: VecDeque<RequestProtocol<TCodec>>,
-    inbound_request_id: Arc<AtomicU64>,
 }
 
 impl<TCodec> RequestResponseHandler<TCodec>
 where
     TCodec: RequestResponseCodec + Send + Clone + 'static,
 {
-    pub(super) fn new(
-        codec: TCodec,
-        keep_alive_timeout: Duration,
-        substream_timeout: Duration,
-        inbound_request_id: Arc<AtomicU64>,
-    ) -> Self {
+    pub(super) fn new(keep_alive_timeout: Duration, substream_timeout: Duration) -> Self {
         Self {
-            codec,
             keep_alive: KeepAlive::Yes,
             keep_alive_timeout,
             substream_timeout,
             outbound: VecDeque::new(),
             pending_events: VecDeque::new(),
             pending_error: None,
-            inbound_request_id,
         }
-    }
-
-    fn on_fully_negotiated_inbound(
-        &mut self,
-        FullyNegotiatedInbound {
-            protocol: _sent,
-            info: _request_id,
-        }: FullyNegotiatedInbound<
-            <Self as ConnectionHandler>::InboundProtocol,
-            <Self as ConnectionHandler>::InboundOpenInfo,
-        >,
-    ) {
-        unreachable!();
     }
 
     fn on_dial_upgrade_error(
@@ -138,7 +110,7 @@ where
     }
     fn on_listen_upgrade_error(
         &mut self,
-        ListenUpgradeError { info, error }: ListenUpgradeError<
+        ListenUpgradeError { info: _, error }: ListenUpgradeError<
             <Self as ConnectionHandler>::InboundOpenInfo,
             <Self as ConnectionHandler>::InboundProtocol,
         >,
@@ -146,21 +118,21 @@ where
         match error {
             ConnectionHandlerUpgrErr::Timeout => self
                 .pending_events
-                .push_back(RequestResponseHandlerEvent::InboundTimeout(info)),
+                .push_back(RequestResponseHandlerEvent::InboundTimeout),
             ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(NegotiationError::Failed)) => {
                 // The local peer merely doesn't support the protocol(s) requested.
                 // This is no reason to close the connection, which may
                 // successfully communicate with other protocols already.
                 // An event is reported to permit user code to react to the fact that
                 // the local peer does not support the requested protocol(s).
-                self.pending_events.push_back(
-                    RequestResponseHandlerEvent::InboundUnsupportedProtocols(info),
-                );
+                self.pending_events
+                    .push_back(RequestResponseHandlerEvent::InboundUnsupportedProtocols);
             }
             _ => {
                 // Anything else is considered a fatal error or misbehaviour of
                 // the remote peer and results in closing the connection.
-                self.pending_error = Some(error);
+                // self.pending_error = Some(error);
+                unreachable!();
             }
         }
     }
@@ -195,9 +167,9 @@ where
     OutboundUnsupportedProtocols(RequestId),
     /// An inbound request timed out while waiting for the request
     /// or sending the response.
-    InboundTimeout(RequestId),
+    InboundTimeout,
     /// An inbound request failed to negotiate a mutually supported protocol.
-    InboundUnsupportedProtocols(RequestId),
+    InboundUnsupportedProtocols,
 }
 
 impl<TCodec: RequestResponseCodec> fmt::Debug for RequestResponseHandlerEvent<TCodec> {
@@ -234,13 +206,11 @@ impl<TCodec: RequestResponseCodec> fmt::Debug for RequestResponseHandlerEvent<TC
                 .debug_tuple("RequestResponseHandlerEvent::OutboundUnsupportedProtocols")
                 .field(request_id)
                 .finish(),
-            RequestResponseHandlerEvent::InboundTimeout(request_id) => f
+            RequestResponseHandlerEvent::InboundTimeout => f
                 .debug_tuple("RequestResponseHandlerEvent::InboundTimeout")
-                .field(request_id)
                 .finish(),
-            RequestResponseHandlerEvent::InboundUnsupportedProtocols(request_id) => f
+            RequestResponseHandlerEvent::InboundUnsupportedProtocols => f
                 .debug_tuple("RequestResponseHandlerEvent::InboundUnsupportedProtocols")
-                .field(request_id)
                 .finish(),
         }
     }
@@ -253,18 +223,13 @@ where
     type InEvent = RequestProtocol<TCodec>;
     type OutEvent = RequestResponseHandlerEvent<TCodec>;
     type Error = ConnectionHandlerUpgrErr<io::Error>;
-    type InboundProtocol = ResponseProtocol<TCodec>;
+    type InboundProtocol = DeniedUpgrade;
     type OutboundProtocol = RequestProtocol<TCodec>;
     type OutboundOpenInfo = RequestId;
-    type InboundOpenInfo = RequestId;
+    type InboundOpenInfo = ();
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
-        let request_id = RequestId(self.inbound_request_id.fetch_add(1, Ordering::Relaxed));
-        let proto = ResponseProtocol {
-            codec: self.codec.clone(),
-            request_id,
-        };
-        SubstreamProtocol::new(proto, request_id).with_timeout(self.substream_timeout)
+        SubstreamProtocol::new(DeniedUpgrade, ()).with_timeout(self.substream_timeout)
     }
 
     fn on_behaviour_event(&mut self, request: Self::InEvent) {
@@ -330,8 +295,8 @@ where
         >,
     ) {
         match event {
-            ConnectionEvent::FullyNegotiatedInbound(fully_negotiated_inbound) => {
-                self.on_fully_negotiated_inbound(fully_negotiated_inbound)
+            ConnectionEvent::FullyNegotiatedInbound(_fully_negotiated_inbound) => {
+                unreachable!();
             }
             ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
                 protocol: response,

@@ -285,14 +285,10 @@ impl EventLoop {
 
                     // incoming requests - we don't support that!
                     //
-                    PingEvent::InboundFailure {
-                        request_id,
-                        peer,
-                        error,
-                    } => {
+                    PingEvent::InboundFailure { peer, error } => {
                         println!(
-                            "inbound ping error: request id {}, peer: {}, error: {}",
-                            request_id, peer, error
+                            "Error: Cannot handle inbound request from peer {}: {}",
+                            peer, error
                         );
                     }
                 }

@@ -34,7 +34,6 @@ use smallvec::SmallVec;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fmt,
-    sync::{atomic::AtomicU64, Arc},
     task::{Context, Poll},
     time::Duration,
 };
@@ -76,8 +75,6 @@ pub enum RequestResponseEvent<TResponse> {
     InboundFailure {
         /// The peer from whom the request was received.
         peer: PeerId,
-        /// The ID of the failed inbound request.
-        request_id: RequestId,
         /// The error that occurred.
         error: InboundFailure,
     },
@@ -220,8 +217,6 @@ where
     outbound_protocols: SmallVec<[TCodec::Protocol; 2]>,
     /// The next (local) request ID.
     next_request_id: RequestId,
-    /// The next (inbound) request ID.
-    next_inbound_id: Arc<AtomicU64>,
     /// The protocol configuration.
     config: RequestResponseConfig,
     /// The protocol codec for reading and writing requests and responses.
@@ -260,7 +255,6 @@ where
         RequestResponse {
             outbound_protocols,
             next_request_id: RequestId(1),
-            next_inbound_id: Arc::new(AtomicU64::new(1)),
             config: cfg,
             codec,
             pending_events: VecDeque::new(),
@@ -570,10 +564,8 @@ where
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         RequestResponseHandler::new(
-            self.codec.clone(),
             self.config.connection_keep_alive,
             self.config.request_timeout,
-            self.next_inbound_id.clone(),
         )
     }
 
@@ -686,7 +678,7 @@ where
                         },
                     ));
             }
-            RequestResponseHandlerEvent::InboundTimeout(request_id) => {
+            RequestResponseHandlerEvent::InboundTimeout => {
                 // Note: `RequestResponseHandlerEvent::InboundTimeout` is emitted both for timing
                 // out to receive the request and for timing out sending the response. In the former
                 // case the request is never added to `pending_outbound_responses` and thus one can
@@ -697,7 +689,6 @@ where
                     .push_back(NetworkBehaviourAction::GenerateEvent(
                         RequestResponseEvent::InboundFailure {
                             peer,
-                            request_id,
                             error: InboundFailure::Timeout,
                         },
                     ));
@@ -718,7 +709,7 @@ where
                         },
                     ));
             }
-            RequestResponseHandlerEvent::InboundUnsupportedProtocols(request_id) => {
+            RequestResponseHandlerEvent::InboundUnsupportedProtocols => {
                 // Note: No need to call `self.remove_pending_outbound_response`,
                 // `RequestResponseHandlerEvent::Request` was never emitted for this request and
                 // thus request was never added to `pending_outbound_responses`.
@@ -726,7 +717,6 @@ where
                     .push_back(NetworkBehaviourAction::GenerateEvent(
                         RequestResponseEvent::InboundFailure {
                             peer,
-                            request_id,
                             error: InboundFailure::UnsupportedProtocols,
                         },
                     ));
