@@ -39,7 +39,7 @@ pub type PingPayload = [u8; PING_SIZE];
 pub type PingBehaviour = RequestResponse<PingCodec>;
 
 pub fn new(cfg: RequestResponseConfig) -> PingBehaviour {
-    RequestResponse::<PingCodec>::new(PingCodec(), std::iter::once(PingProtocol), cfg)
+    RequestResponse::<PingCodec>::new(PingCodec(), cfg)
 }
 
 pub type PingEvent = RequestResponseEvent<PingResponse>;

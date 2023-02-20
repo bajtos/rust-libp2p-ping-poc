@@ -35,7 +35,7 @@ use libp2p::swarm::{ConnectionHandlerUpgrErr, NetworkBehaviour, Swarm, SwarmEven
 use libp2p::yamux;
 use libp2p::Transport;
 
-use crate::ping::{PingBehaviour, PingEvent, PingMessage, PingRequest, PingRequestId};
+use crate::ping::{self, PingBehaviour, PingEvent, PingMessage, PingRequest, PingRequestId};
 
 /// Creates the network components, namely:
 ///
@@ -352,11 +352,11 @@ impl EventLoop {
                 let request = PingRequest::new();
                 let started = Instant::now();
 
-                let request_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .ping
-                    .send_request(&peer, request.clone());
+                let request_id = self.swarm.behaviour_mut().ping.send_request(
+                    &peer,
+                    &[ping::PingProtocol],
+                    request.clone(),
+                );
 
                 self.pending_ping.insert(
                     request_id,

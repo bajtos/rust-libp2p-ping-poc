@@ -200,8 +200,6 @@ pub struct RequestResponse<TCodec>
 where
     TCodec: RequestResponseCodec + Clone + Send + 'static,
 {
-    /// The supported outbound protocols.
-    outbound_protocols: SmallVec<[TCodec::Protocol; 2]>,
     /// The next (local) request ID.
     next_request_id: RequestId,
     /// The protocol configuration.
@@ -230,17 +228,9 @@ where
     TCodec: RequestResponseCodec + Clone + Send + 'static,
 {
     /// Creates a new `RequestResponse` behaviour for the given
-    /// protocols, codec and configuration.
-    pub fn new<I>(codec: TCodec, protocols: I, cfg: RequestResponseConfig) -> Self
-    where
-        I: IntoIterator<Item = TCodec::Protocol>,
-    {
-        let mut outbound_protocols = SmallVec::new();
-        for p in protocols {
-            outbound_protocols.push(p.clone());
-        }
+    /// codec and configuration.
+    pub fn new(codec: TCodec, cfg: RequestResponseConfig) -> Self {
         RequestResponse {
-            outbound_protocols,
             next_request_id: RequestId(1),
             config: cfg,
             codec,
@@ -263,12 +253,17 @@ where
     /// > address discovery, or known addresses of peers must be
     /// > managed via [`RequestResponse::add_address`] and
     /// > [`RequestResponse::remove_address`].
-    pub fn send_request(&mut self, peer: &PeerId, request: TCodec::Request) -> RequestId {
+    pub fn send_request(
+        &mut self,
+        peer: &PeerId,
+        protocols: &[TCodec::Protocol],
+        request: TCodec::Request,
+    ) -> RequestId {
         let request_id = self.next_request_id();
         let request = RequestProtocol {
             request_id,
             codec: self.codec.clone(),
-            protocols: self.outbound_protocols.clone(),
+            protocols: protocols.into(),
             request,
         };
 
