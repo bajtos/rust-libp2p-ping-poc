@@ -2,11 +2,9 @@ use std::time::Instant;
 
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
-use rand::{distributions, thread_rng, Rng};
 use tokio::spawn;
 
 mod peer;
-mod ping;
 mod zinnia_request_response;
 
 #[tokio::main(flavor = "current_thread")]
@@ -37,13 +35,16 @@ async fn main() {
 
     // 3. Dial a remote peer using a peer_id & remote_addr
     // Zinnia will not register with DHT in the initial version.
+    println!("Dialing {peer_id} at {remote_addr}");
     network_client
         .dial(peer_id, remote_addr.clone())
         .await
         .expect("Dial should succeed");
+    println!("Connected!");
 
     // 4. Request the `ping` protocol.
     // Real-world modules will invoke different protocols, e.g BitSwap.
+    println!("Sending the first ping request");
     let result = network_client
         .ping(peer_id)
         .await
@@ -61,18 +62,46 @@ async fn main() {
     // Check out the following Deno example for the rationale behind this API design:
     // https://github.com/denoland/deno/blob/848e2c0d57febf744ed585702f314dc64bc8b4ae/core/examples/http_bench_json_ops/main.rs
 
-    let request: Vec<u8> = {
-        let payload: ping::PingPayload = thread_rng().sample(distributions::Standard);
-        payload.into()
-    };
+    let request = ping::new_request_payload();
 
     // 1. Send a request to the given peer
     let started = Instant::now();
+    println!("Sending the second request at {:?}", started);
+    let response = network_client
+        .request_protocol(
+            peer_id,
+            remote_addr.clone(),
+            ping::PROTOCOL_NAME,
+            request.clone(),
+        )
+        .await
+        .expect("request ping protocol should succeed");
+    let duration = started.elapsed();
+    println!("Elapsed: {}ms", duration.as_millis());
+
+    // 2. Process the response and report results
+    if response != request {
+        println!(
+            "Ping {} payload mismatch. Sent {:?}, received {:?}",
+            peer_id, request, response,
+        );
+    } else {
+        println!("Round-trip time: {}ms", duration.as_millis(),)
+    }
+
+    // TRY AGAIN
+
+    let request = ping::new_request_payload();
+
+    // 1. Send a request to the given peer
+    let started = Instant::now();
+    println!("Sending the second request at {:?}", started);
     let response = network_client
         .request_protocol(peer_id, remote_addr, ping::PROTOCOL_NAME, request.clone())
         .await
         .expect("request ping protocol should succeed");
     let duration = started.elapsed();
+    println!("Elapsed: {}ms", duration.as_millis());
 
     // 2. Process the response and report results
     if response != request {
@@ -85,25 +114,17 @@ async fn main() {
     }
 }
 
-// // Inspired by futures_util::io::read_exact
-// // In Zinnia, this helper would be implemented differently
-// async fn read_exact(
-//     client: &mut peer::Client,
-//     handle: &mut peer::StreamHandle,
-//     outbuf: &mut [u8],
-// ) -> Result<(), Box<dyn std::error::Error + Send>> {
-//     let mut buf = outbuf;
+pub mod ping {
+    use rand::{distributions, thread_rng, Rng};
 
-//     while !buf.is_empty() {
-//         let n = client.read(handle, &mut buf).await?;
-//         if n == 0 {
-//             return Err(Box::new(std::io::Error::from(
-//                 std::io::ErrorKind::UnexpectedEof,
-//             )));
-//         }
-//         let (_, rest) = std::mem::take(&mut buf).split_at_mut(n);
-//         buf = rest;
-//     }
+    use crate::zinnia_request_response::RequestPayload;
 
-//     Ok(())
-// }
+    pub const PROTOCOL_NAME: &[u8] = b"/ipfs/ping/1.0.0";
+    pub const PING_SIZE: usize = 32;
+    pub type PingRequestPayload = [u8; PING_SIZE];
+
+    pub fn new_request_payload() -> RequestPayload {
+        let payload: PingRequestPayload = thread_rng().sample(distributions::Standard);
+        payload.into()
+    }
+}

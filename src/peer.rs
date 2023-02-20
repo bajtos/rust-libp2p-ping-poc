@@ -35,8 +35,10 @@ use libp2p::swarm::{ConnectionHandlerUpgrErr, NetworkBehaviour, Swarm, SwarmEven
 use libp2p::yamux;
 use libp2p::Transport;
 
-use crate::ping::{self, new_ping_payload, PingBehaviour, PingEvent, PingMessage, PingRequestId};
-use crate::zinnia_request_response::RequestPayload;
+use crate::zinnia_request_response::{
+    ProtocolInfo, RequestId, RequestPayload, RequestResponse, RequestResponseEvent,
+    RequestResponseMessage, ResponsePayload,
+};
 
 /// Creates the network components, namely:
 ///
@@ -79,14 +81,10 @@ pub async fn new() -> Result<(Client, EventLoop), Box<dyn Error>> {
 
     // Build the Swarm, connecting the lower layer transport logic with the
     // higher layer network behaviour logic.
-    //
-    // Everyting below (and in `ping.rs`) has a single purpose - to build `dial` and `ping` APIs.
-    // It's a lot of code :-/
-    //
     let swarm = Swarm::with_tokio_executor(
         tcp_transport,
         ComposedBehaviour {
-            ping: crate::ping::new(Default::default()),
+            zinnia: RequestResponse::new(Default::default()),
         },
         peer_id,
     );
@@ -126,13 +124,36 @@ impl Client {
     }
 
     /// Ping the remote peer. You must dial the peer first before calling this method.
-    pub async fn ping(&mut self, peer: PeerId) -> Result<Duration, Box<dyn Error + Send>> {
+    pub async fn ping(&mut self, peer_id: PeerId) -> Result<Duration, Box<dyn Error + Send>> {
         let (sender, receiver) = oneshot::channel();
+        let request_payload = crate::ping::new_request_payload();
+        let started = Instant::now();
+
         self.sender
-            .send(Command::Ping { peer, sender })
+            .send(Command::Request {
+                peer_id,
+                protocol: crate::ping::PROTOCOL_NAME.into(),
+                payload: request_payload.clone(),
+                sender,
+            })
             .await
             .expect("Command receiver not to be dropped.");
-        receiver.await.expect("Sender not be dropped.")
+        let response_payload = receiver.await.expect("Sender not be dropped.")?;
+
+        let duration = started.elapsed();
+        if response_payload != request_payload {
+            println!(
+                "Ping {} payload mismatch. Sent {:?}, received {:?}",
+                peer_id, request_payload, response_payload
+            );
+            let err: Box<dyn std::error::Error + std::marker::Send> = Box::new(
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "Ping payload mismatch"),
+            );
+            Err(err)
+        } else {
+            println!("Ping {} completed in {}ms", peer_id, duration.as_millis());
+            Ok(duration)
+        }
     }
 
     // NEW API FOR ZINNIA
@@ -141,14 +162,21 @@ impl Client {
         &mut self,
         peer_id: PeerId,
         peer_addr: Multiaddr,
-        proto_name: &[u8],
-        request_payload: Vec<u8>,
+        protocol: &[u8],
+        payload: Vec<u8>,
     ) -> Result<Vec<u8>, Box<dyn Error + Send>> {
-        todo!(
-            "dial {peer_id} at {peer_addr}, start protocol {}, send {} bytes of request payload",
-            String::from_utf8_lossy(proto_name),
-            request_payload.len(),
-        );
+        let (sender, receiver) = oneshot::channel();
+        self.dial(peer_id, peer_addr).await?;
+        self.sender
+            .send(Command::Request {
+                peer_id,
+                protocol: protocol.into(),
+                payload,
+                sender,
+            })
+            .await
+            .expect("Command receiver not to be dropped.");
+        receiver.await.expect("Sender not be dropped.")
     }
 
     // pub async fn dial_protocol(
@@ -195,13 +223,11 @@ pub struct EventLoop {
     swarm: Swarm<ComposedBehaviour>,
     command_receiver: mpsc::Receiver<Command>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>,
-    pending_ping: HashMap<PingRequestId, PendingPing>,
+    pending_requests: HashMap<RequestId, PendingRequest>,
 }
 
-pub struct PendingPing {
-    request: RequestPayload,
-    started: Instant,
-    sender: oneshot::Sender<Result<Duration, Box<dyn Error + Send>>>,
+pub struct PendingRequest {
+    sender: oneshot::Sender<Result<ResponsePayload, Box<dyn Error + Send>>>,
 }
 
 impl EventLoop {
@@ -210,7 +236,7 @@ impl EventLoop {
             swarm,
             command_receiver,
             pending_dial: Default::default(),
-            pending_ping: Default::default(),
+            pending_requests: Default::default(),
         }
     }
 
@@ -232,61 +258,46 @@ impl EventLoop {
         event: SwarmEvent<ComposedEvent, ConnectionHandlerUpgrErr<std::io::Error>>,
     ) {
         match event {
-            SwarmEvent::Behaviour(ComposedEvent::Ping(result)) => {
+            SwarmEvent::Behaviour(ComposedEvent::Zinnia(result)) => {
                 match result {
-                    PingEvent::OutboundFailure {
+                    RequestResponseEvent::OutboundFailure {
                         request_id,
                         error,
                         peer,
                     } => {
-                        println!("Cannot ping {}: {}", peer, error);
-                        let pending_ping = self
-                            .pending_ping
+                        println!("Cannot request {}: {}", peer, error);
+                        let pending_request = self
+                            .pending_requests
                             .remove(&request_id)
                             .expect("Ping request should be still be pending.");
-                        pending_ping.sender.send(Err(Box::new(error))).expect(
-                            "Ping request should have an active sender to receive the result.",
-                        );
+                        pending_request
+                            .sender
+                            .send(Err(Box::new(error)))
+                            .expect("Request should have an active sender to receive the result.");
                     }
 
-                    PingEvent::Message {
-                        peer,
+                    RequestResponseEvent::Message {
+                        peer: _,
                         message:
-                            PingMessage::Response {
+                            RequestResponseMessage::Response {
                                 request_id,
                                 response,
                             },
                     } => {
-                        let pending_ping = self
-                            .pending_ping
+                        let pending_request = self
+                            .pending_requests
                             .remove(&request_id)
-                            .expect("Ping request should be still be pending.");
-                        let result = {
-                            if response != pending_ping.request {
-                                println!(
-                                    "Ping {} payload mismatch. Sent {:?}, received {:?}",
-                                    peer, pending_ping.request, response
-                                );
-                                let err: Box<dyn std::error::Error + std::marker::Send> =
-                                    Box::new(std::io::Error::new(
-                                        std::io::ErrorKind::InvalidData,
-                                        "Ping payload mismatch",
-                                    ));
-                                Err(err)
-                            } else {
-                                let duration = pending_ping.started.elapsed();
-                                println!("Ping {} completed in {}ms", peer, duration.as_millis());
-                                Ok(duration)
-                            }
-                        };
-                        pending_ping.sender.send(result.into()).expect(
-                            "Ping request should have an active sender to receive the result.",
-                        );
+                            .expect("Request should be still be pending.");
+
+                        pending_request
+                            .sender
+                            .send(Ok(response))
+                            .expect("Request should have an active sender to receive the result.");
                     }
 
                     // incoming requests - we don't support that!
                     //
-                    PingEvent::InboundFailure { peer, error } => {
+                    RequestResponseEvent::InboundFailure { peer, error } => {
                         println!(
                             "Error: Cannot handle inbound request from peer {}: {}",
                             peer, error
@@ -330,7 +341,7 @@ impl EventLoop {
                 if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
                     self.swarm
                         .behaviour_mut()
-                        .ping
+                        .zinnia
                         .add_address(&peer_id, peer_addr.clone());
 
                     match self
@@ -349,24 +360,19 @@ impl EventLoop {
                 }
             }
 
-            Command::Ping { peer, sender } => {
-                let request = new_ping_payload();
-                let started = Instant::now();
-
-                let request_id = self.swarm.behaviour_mut().ping.send_request(
-                    &peer,
-                    &[ping::PROTOCOL_NAME.into()],
-                    request.clone(),
-                );
-
-                self.pending_ping.insert(
-                    request_id,
-                    PendingPing {
-                        request,
-                        started,
-                        sender,
-                    },
-                );
+            Command::Request {
+                peer_id,
+                protocol,
+                payload,
+                sender,
+            } => {
+                let request_id =
+                    self.swarm
+                        .behaviour_mut()
+                        .zinnia
+                        .send_request(&peer_id, &[protocol], payload);
+                self.pending_requests
+                    .insert(request_id, PendingRequest { sender });
             }
         }
     }
@@ -375,20 +381,20 @@ impl EventLoop {
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "ComposedEvent")]
 struct ComposedBehaviour {
-    pub ping: PingBehaviour,
+    pub zinnia: RequestResponse,
     // We can add more behaviours later.
     // request_response: request_response::Behaviour<FileExchangeCodec>,
 }
 
 #[derive(Debug)]
 enum ComposedEvent {
-    Ping(PingEvent),
+    Zinnia(RequestResponseEvent),
     // We can add more events later.
 }
 
-impl From<PingEvent> for ComposedEvent {
-    fn from(event: PingEvent) -> Self {
-        ComposedEvent::Ping(event)
+impl From<RequestResponseEvent> for ComposedEvent {
+    fn from(event: RequestResponseEvent) -> Self {
+        ComposedEvent::Zinnia(event)
     }
 }
 
@@ -399,8 +405,10 @@ enum Command {
         peer_addr: Multiaddr,
         sender: oneshot::Sender<Result<(), Box<dyn Error + Send>>>,
     },
-    Ping {
-        peer: PeerId,
-        sender: oneshot::Sender<Result<Duration, Box<dyn Error + Send>>>,
+    Request {
+        peer_id: PeerId,
+        protocol: ProtocolInfo,
+        payload: RequestPayload,
+        sender: oneshot::Sender<Result<ResponsePayload, Box<dyn Error + Send>>>,
     },
 }
