@@ -22,8 +22,8 @@
 // DEALINGS IN THE SOFTWARE.
 
 use crate::zinnia_request_response::{
-    ProtocolName, ProtocolSupport, RequestId, RequestResponse, RequestResponseCodec,
-    RequestResponseConfig, RequestResponseEvent, RequestResponseMessage,
+    ProtocolName, RequestId, RequestResponse, RequestResponseCodec, RequestResponseConfig,
+    RequestResponseEvent, RequestResponseMessage,
 };
 use async_trait::async_trait;
 use libp2p::futures::{io, AsyncReadExt, AsyncWriteExt};
@@ -39,15 +39,11 @@ pub type PingPayload = [u8; PING_SIZE];
 pub type PingBehaviour = RequestResponse<PingCodec>;
 
 pub fn new(cfg: RequestResponseConfig) -> PingBehaviour {
-    RequestResponse::<PingCodec>::new(
-        PingCodec(),
-        std::iter::once((PingProtocol, ProtocolSupport::Full)),
-        cfg,
-    )
+    RequestResponse::<PingCodec>::new(PingCodec(), std::iter::once(PingProtocol), cfg)
 }
 
-pub type PingEvent = RequestResponseEvent<PingRequest, PingResponse>;
-pub type PingMessage = RequestResponseMessage<PingRequest, PingResponse>;
+pub type PingEvent = RequestResponseEvent<PingResponse>;
+pub type PingMessage = RequestResponseMessage<PingResponse>;
 pub type PingRequestId = RequestId;
 
 #[derive(Debug, Clone)]

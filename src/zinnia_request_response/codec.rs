@@ -21,7 +21,7 @@
 pub use libp2p::core::ProtocolName;
 
 use async_trait::async_trait;
-use futures::prelude::*;
+use libp2p::futures::prelude::*;
 use std::io;
 
 /// A `RequestResponseCodec` defines the request and response types

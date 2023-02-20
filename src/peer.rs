@@ -295,15 +295,6 @@ impl EventLoop {
                             request_id, peer, error
                         );
                     }
-                    PingEvent::Message {
-                        message: PingMessage::Request { .. },
-                        ..
-                    } => {
-                        unreachable!()
-                    }
-                    PingEvent::ResponseSent { .. } => {
-                        unreachable!()
-                    }
                 }
             }
 

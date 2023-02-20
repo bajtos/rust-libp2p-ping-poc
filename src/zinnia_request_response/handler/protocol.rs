@@ -26,40 +26,12 @@
 use crate::zinnia_request_response::codec::RequestResponseCodec;
 use crate::zinnia_request_response::RequestId;
 
-use futures::{channel::oneshot, future::BoxFuture, prelude::*};
 use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade, UpgradeInfo};
+use libp2p::futures::{future::BoxFuture, prelude::*};
 use libp2p::swarm::NegotiatedSubstream;
 use smallvec::SmallVec;
+
 use std::{fmt, io};
-
-/// The level of support for a particular protocol.
-#[derive(Debug, Clone)]
-pub enum ProtocolSupport {
-    /// The protocol is only supported for inbound requests.
-    Inbound,
-    /// The protocol is only supported for outbound requests.
-    Outbound,
-    /// The protocol is supported for inbound and outbound requests.
-    Full,
-}
-
-impl ProtocolSupport {
-    /// Whether inbound requests are supported.
-    pub fn inbound(&self) -> bool {
-        match self {
-            ProtocolSupport::Inbound | ProtocolSupport::Full => true,
-            ProtocolSupport::Outbound => false,
-        }
-    }
-
-    /// Whether outbound requests are supported.
-    pub fn outbound(&self) -> bool {
-        match self {
-            ProtocolSupport::Outbound | ProtocolSupport::Full => true,
-            ProtocolSupport::Inbound => false,
-        }
-    }
-}
 
 /// Response substream upgrade protocol.
 ///
@@ -69,10 +41,9 @@ pub struct ResponseProtocol<TCodec>
 where
     TCodec: RequestResponseCodec,
 {
+    #[allow(dead_code)]
     pub(crate) codec: TCodec,
-    pub(crate) protocols: SmallVec<[TCodec::Protocol; 2]>,
-    pub(crate) request_sender: oneshot::Sender<(RequestId, TCodec::Request)>,
-    pub(crate) response_receiver: oneshot::Receiver<TCodec::Response>,
+    #[allow(dead_code)]
     pub(crate) request_id: RequestId,
 }
 
@@ -81,10 +52,11 @@ where
     TCodec: RequestResponseCodec,
 {
     type Info = TCodec::Protocol;
-    type InfoIter = smallvec::IntoIter<[Self::Info; 2]>;
+    // We don't accept any inbound requests
+    type InfoIter = [Self::Info; 0];
 
     fn protocol_info(&self) -> Self::InfoIter {
-        self.protocols.clone().into_iter()
+        Default::default()
     }
 }
 
@@ -96,34 +68,8 @@ where
     type Error = io::Error;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
-    fn upgrade_inbound(
-        mut self,
-        mut io: NegotiatedSubstream,
-        protocol: Self::Info,
-    ) -> Self::Future {
-        async move {
-            let read = self.codec.read_request(&protocol, &mut io);
-            let request = read.await?;
-            match self.request_sender.send((self.request_id, request)) {
-                Ok(()) => {},
-                Err(_) => panic!(
-                    "Expect request receiver to be alive i.e. protocol handler to be alive.",
-                ),
-            }
-
-            if let Ok(response) = self.response_receiver.await {
-                let write = self.codec.write_response(&protocol, &mut io, response);
-                write.await?;
-
-                io.close().await?;
-                // Response was sent. Indicate to handler to emit a `ResponseSent` event.
-                Ok(true)
-            } else {
-                io.close().await?;
-                // No response was sent. Indicate to handler to emit a `ResponseOmission` event.
-                Ok(false)
-            }
-        }.boxed()
+    fn upgrade_inbound(self, _io: NegotiatedSubstream, _protocol: Self::Info) -> Self::Future {
+        unreachable!("Zinnia does not accept inbound requests")
     }
 }
 
