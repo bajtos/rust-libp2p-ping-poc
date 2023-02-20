@@ -136,40 +136,54 @@ impl Client {
 
     // NEW API FOR ZINNIA
 
-    pub async fn dial_protocol(
+    pub async fn request_protocol(
         &mut self,
         peer_id: PeerId,
         peer_addr: Multiaddr,
         proto_name: &[u8],
-    ) -> Result<StreamHandle, Box<dyn Error + Send>> {
+        request_payload: Vec<u8>,
+    ) -> Result<Vec<u8>, Box<dyn Error + Send>> {
         todo!(
-            "TODO: dial {peer_id} at {peer_addr} and start protocol {}",
-            String::from_utf8_lossy(proto_name)
+            "dial {peer_id} at {peer_addr}, start protocol {}, send {} bytes of request payload",
+            String::from_utf8_lossy(proto_name),
+            request_payload.len(),
         );
     }
 
-    pub async fn write_all(
-        &mut self,
-        handle: &StreamHandle,
-        buf: &[u8],
-    ) -> Result<(), Box<dyn Error + Send>> {
-        todo!("TODO: write {} bytes to {:?}", buf.len(), handle)
-    }
+    // pub async fn dial_protocol(
+    //     &mut self,
+    //     peer_id: PeerId,
+    //     peer_addr: Multiaddr,
+    //     proto_name: &[u8],
+    // ) -> Result<StreamHandle, Box<dyn Error + Send>> {
+    //     todo!(
+    //         "TODO: dial {peer_id} at {peer_addr} and start protocol {}",
+    //         String::from_utf8_lossy(proto_name)
+    //     );
+    // }
 
-    pub async fn close_writer(
-        &mut self,
-        handle: &mut StreamHandle,
-    ) -> Result<(), Box<dyn Error + Send>> {
-        todo!("TODO: close writer {:?}", handle)
-    }
+    // pub async fn write_all(
+    //     &mut self,
+    //     handle: &StreamHandle,
+    //     buf: &[u8],
+    // ) -> Result<(), Box<dyn Error + Send>> {
+    //     todo!("TODO: write {} bytes to {:?}", buf.len(), handle)
+    // }
 
-    pub async fn read(
-        &mut self,
-        handle: &mut StreamHandle,
-        buf: &[u8],
-    ) -> Result<usize, Box<dyn Error + Send>> {
-        todo!("TODO: read up to {} bytes from {:?}", buf.len(), handle)
-    }
+    // pub async fn close_writer(
+    //     &mut self,
+    //     handle: &mut StreamHandle,
+    // ) -> Result<(), Box<dyn Error + Send>> {
+    //     todo!("TODO: close writer {:?}", handle)
+    // }
+
+    // pub async fn read(
+    //     &mut self,
+    //     handle: &mut StreamHandle,
+    //     buf: &[u8],
+    // ) -> Result<usize, Box<dyn Error + Send>> {
+    //     todo!("TODO: read up to {} bytes from {:?}", buf.len(), handle)
+    // }
 }
 
 /// A handle representing a substream opened by our network behaviour

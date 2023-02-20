@@ -2,7 +2,6 @@ use std::time::Instant;
 
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
-use ping::PingPayload;
 use rand::{distributions, thread_rng, Rng};
 use tokio::spawn;
 
@@ -61,61 +60,49 @@ async fn main() {
     // Check out the following Deno example for the rationale behind this API design:
     // https://github.com/denoland/deno/blob/848e2c0d57febf744ed585702f314dc64bc8b4ae/core/examples/http_bench_json_ops/main.rs
 
-    // 1. Dial a protocol by name, get back a substream
-    let mut stream = network_client
-        .dial_protocol(peer_id, remote_addr, ping::PROTOCOL_NAME)
-        .await
-        .expect("dial ping protocol should succeed");
+    let request: Vec<u8> = {
+        let payload: ping::PingPayload = thread_rng().sample(distributions::Standard);
+        payload.into()
+    };
 
+    // 1. Send a request to the given peer
     let started = Instant::now();
-
-    // 2. Write the request to the substream and close the substream
-    let req: PingPayload = thread_rng().sample(distributions::Standard);
-    network_client
-        .write_all(&stream, &req)
+    let response = network_client
+        .request_protocol(peer_id, remote_addr, ping::PROTOCOL_NAME, request.clone())
         .await
-        .expect("write ping request should succeed");
-    network_client
-        .close_writer(&mut stream)
-        .await
-        .expect("close request stream should succeed");
+        .expect("request ping protocol should succeed");
+    let duration = started.elapsed();
 
-    // 3. Read the response from the substream
-    let mut res: PingPayload = Default::default();
-    read_exact(&mut network_client, &mut stream, &mut res)
-        .await
-        .expect("should read full ping response");
-
-    // 4. Process the response and report results
-    if res != req {
+    // 2. Process the response and report results
+    if response != request {
         println!(
             "Ping {} payload mismatch. Sent {:?}, received {:?}",
-            peer_id, req, res,
+            peer_id, request, response,
         );
     } else {
-        println!("Round-trip time: {}ms", started.elapsed().as_millis(),)
+        println!("Round-trip time: {}ms", duration.as_millis(),)
     }
 }
 
-// Inspired by futures_util::io::read_exact
-// In Zinnia, this helper would be implemented differently
-async fn read_exact(
-    client: &mut peer::Client,
-    handle: &mut peer::StreamHandle,
-    outbuf: &mut [u8],
-) -> Result<(), Box<dyn std::error::Error + Send>> {
-    let mut buf = outbuf;
+// // Inspired by futures_util::io::read_exact
+// // In Zinnia, this helper would be implemented differently
+// async fn read_exact(
+//     client: &mut peer::Client,
+//     handle: &mut peer::StreamHandle,
+//     outbuf: &mut [u8],
+// ) -> Result<(), Box<dyn std::error::Error + Send>> {
+//     let mut buf = outbuf;
 
-    while !buf.is_empty() {
-        let n = client.read(handle, &mut buf).await?;
-        if n == 0 {
-            return Err(Box::new(std::io::Error::from(
-                std::io::ErrorKind::UnexpectedEof,
-            )));
-        }
-        let (_, rest) = std::mem::take(&mut buf).split_at_mut(n);
-        buf = rest;
-    }
+//     while !buf.is_empty() {
+//         let n = client.read(handle, &mut buf).await?;
+//         if n == 0 {
+//             return Err(Box::new(std::io::Error::from(
+//                 std::io::ErrorKind::UnexpectedEof,
+//             )));
+//         }
+//         let (_, rest) = std::mem::take(&mut buf).split_at_mut(n);
+//         buf = rest;
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
