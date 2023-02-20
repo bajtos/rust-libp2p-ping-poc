@@ -38,22 +38,18 @@ use std::{fmt, io};
 pub type RequestPayload = Vec<u8>;
 pub type ResponsePayload = Vec<u8>;
 
+pub type ProtocolInfo = SmallVec<[u8; 16]>;
+
 /// Request substream upgrade protocol.
 ///
 /// Sends a request and receives a response.
-pub struct RequestProtocol<TProtocolInfo>
-where
-    TProtocolInfo: ProtocolName,
-{
-    pub(crate) protocols: SmallVec<[TProtocolInfo; 2]>,
+pub struct RequestProtocol {
+    pub(crate) protocols: SmallVec<[ProtocolInfo; 2]>,
     pub(crate) request_id: RequestId,
     pub(crate) request: RequestPayload,
 }
 
-impl<TProtocolInfo> fmt::Debug for RequestProtocol<TProtocolInfo>
-where
-    TProtocolInfo: ProtocolName + Send + Clone + 'static,
-{
+impl fmt::Debug for RequestProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RequestProtocol")
             .field("request_id", &self.request_id)
@@ -61,11 +57,8 @@ where
     }
 }
 
-impl<TProtocolInfo> UpgradeInfo for RequestProtocol<TProtocolInfo>
-where
-    TProtocolInfo: ProtocolName + Send + Clone + 'static,
-{
-    type Info = TProtocolInfo;
+impl UpgradeInfo for RequestProtocol {
+    type Info = ProtocolInfo;
     type InfoIter = smallvec::IntoIter<[Self::Info; 2]>;
 
     fn protocol_info(&self) -> Self::InfoIter {
@@ -73,10 +66,7 @@ where
     }
 }
 
-impl<TProtocolInfo> OutboundUpgrade<NegotiatedSubstream> for RequestProtocol<TProtocolInfo>
-where
-    TProtocolInfo: ProtocolName + Send + Clone + 'static,
-{
+impl OutboundUpgrade<NegotiatedSubstream> for RequestProtocol {
     type Output = ResponsePayload;
     type Error = io::Error;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;

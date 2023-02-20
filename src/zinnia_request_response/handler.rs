@@ -20,7 +20,7 @@
 
 mod protocol;
 
-pub use self::protocol::{ProtocolName, RequestPayload, ResponsePayload};
+pub use self::protocol::{ProtocolInfo, ProtocolName, RequestPayload, ResponsePayload};
 
 use super::{RequestId, EMPTY_QUEUE_SHRINK_THRESHOLD};
 
@@ -45,10 +45,7 @@ use std::{
 
 /// A connection handler of a `RequestResponse` protocol.
 #[doc(hidden)]
-pub struct RequestResponseHandler<TProtocolInfo>
-where
-    TProtocolInfo: ProtocolName,
-{
+pub struct RequestResponseHandler {
     /// The keep-alive timeout of idle connections. A connection is considered
     /// idle if there are no outbound substreams.
     keep_alive_timeout: Duration,
@@ -62,13 +59,10 @@ where
     /// Queue of events to emit in `poll()`.
     pending_events: VecDeque<RequestResponseHandlerEvent>,
     /// Outbound upgrades waiting to be emitted as an `OutboundSubstreamRequest`.
-    outbound: VecDeque<RequestProtocol<TProtocolInfo>>,
+    outbound: VecDeque<RequestProtocol>,
 }
 
-impl<TProtocolInfo> RequestResponseHandler<TProtocolInfo>
-where
-    TProtocolInfo: ProtocolName + Send + Clone + 'static,
-{
+impl RequestResponseHandler {
     pub(super) fn new(keep_alive_timeout: Duration, substream_timeout: Duration) -> Self {
         Self {
             keep_alive: KeepAlive::Yes,
@@ -187,15 +181,12 @@ impl fmt::Debug for RequestResponseHandlerEvent {
     }
 }
 
-impl<TProtocolInfo> ConnectionHandler for RequestResponseHandler<TProtocolInfo>
-where
-    TProtocolInfo: ProtocolName + Send + Clone + 'static,
-{
-    type InEvent = RequestProtocol<TProtocolInfo>;
+impl ConnectionHandler for RequestResponseHandler {
+    type InEvent = RequestProtocol;
     type OutEvent = RequestResponseHandlerEvent;
     type Error = ConnectionHandlerUpgrErr<io::Error>;
     type InboundProtocol = DeniedUpgrade;
-    type OutboundProtocol = RequestProtocol<TProtocolInfo>;
+    type OutboundProtocol = RequestProtocol;
     type OutboundOpenInfo = RequestId;
     type InboundOpenInfo = ();
 
@@ -215,14 +206,7 @@ where
     fn poll(
         &mut self,
         _cx: &mut Context<'_>,
-    ) -> Poll<
-        ConnectionHandlerEvent<
-            RequestProtocol<TProtocolInfo>,
-            RequestId,
-            Self::OutEvent,
-            Self::Error,
-        >,
-    > {
+    ) -> Poll<ConnectionHandlerEvent<RequestProtocol, RequestId, Self::OutEvent, Self::Error>> {
         // Check for a pending (fatal) error.
         if let Some(err) = self.pending_error.take() {
             // The handler will not be polled again by the `Swarm`.

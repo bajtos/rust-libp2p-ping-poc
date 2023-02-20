@@ -33,10 +33,10 @@ pub const PROTOCOL_NAME: &[u8] = libp2p::ping::PROTOCOL_NAME;
 pub const PING_SIZE: usize = 32;
 pub type PingPayload = [u8; PING_SIZE];
 
-pub type PingBehaviour = RequestResponse<PingProtocol>;
+pub type PingBehaviour = RequestResponse;
 
 pub fn new(cfg: RequestResponseConfig) -> PingBehaviour {
-    RequestResponse::<PingProtocol>::new(cfg)
+    RequestResponse::new(cfg)
 }
 
 pub type PingEvent = RequestResponseEvent;

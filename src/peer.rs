@@ -355,7 +355,7 @@ impl EventLoop {
 
                 let request_id = self.swarm.behaviour_mut().ping.send_request(
                     &peer,
-                    &[ping::PingProtocol],
+                    &[ping::PROTOCOL_NAME.into()],
                     request.clone(),
                 );
 
