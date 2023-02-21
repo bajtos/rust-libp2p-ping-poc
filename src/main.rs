@@ -2,7 +2,8 @@ use std::time::Instant;
 
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
-use tokio::spawn;
+
+use crate::peer::PeerNode;
 
 mod peer;
 
@@ -24,19 +25,15 @@ async fn main() {
 
     // DEMO USAGE OF THE `peer` MODULE
 
-    // 1. Setup the peer
-    let (mut network_client, network_event_loop) = peer::new()
+    // 1. Setup the peer and spawn the network task for it to run in the background.
+    let mut peer = PeerNode::spawn()
         .await
         .expect("should be able to create a new peer");
-
-    // 2. Spawn the network task for it to run in the background.
-    spawn(network_event_loop.run());
 
     // 3. Dial a remote peer using a peer_id & remote_addr
     // Zinnia will not register with DHT in the initial version.
     println!("Dialing {peer_id} at {remote_addr}");
-    network_client
-        .dial(peer_id, remote_addr.clone())
+    peer.dial(peer_id, remote_addr.clone())
         .await
         .expect("Dial should succeed");
     println!("Connected!");
@@ -44,10 +41,7 @@ async fn main() {
     // 4. Request the `ping` protocol.
     // Real-world modules will invoke different protocols, e.g BitSwap.
     println!("Sending the first ping request");
-    let result = network_client
-        .ping(peer_id)
-        .await
-        .expect("Ping should succeeed");
+    let result = peer.ping(peer_id).await.expect("Ping should succeeed");
 
     // 5. Report results
     println!("Round-trip time: {}ms", result.as_millis());
@@ -66,7 +60,7 @@ async fn main() {
     // 1. Send a request to the given peer
     let started = Instant::now();
     println!("Sending the second request at {:?}", started);
-    let response = network_client
+    let response = peer
         .request_protocol(
             peer_id,
             remote_addr.clone(),
@@ -95,7 +89,7 @@ async fn main() {
     // 1. Send a request to the given peer
     let started = Instant::now();
     println!("Sending the second request at {:?}", started);
-    let response = network_client
+    let response = peer
         .request_protocol(peer_id, remote_addr, ping::PROTOCOL_NAME, request.clone())
         .await
         .expect("request ping protocol should succeed");

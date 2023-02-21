@@ -21,12 +21,14 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
+use libp2p::core::muxing::StreamMuxerBox;
 use std::collections::{hash_map, HashMap};
 use std::error::Error;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 
-use libp2p::core::{upgrade, Multiaddr, PeerId};
+use libp2p::core::{transport, upgrade, Multiaddr, PeerId};
 use libp2p::futures::StreamExt;
 use libp2p::identity;
 use libp2p::multiaddr::Protocol;
@@ -43,71 +45,54 @@ use behaviour::{
 };
 pub use behaviour::{RequestPayload, ResponsePayload};
 
-/// Creates the network components, namely:
-///
-/// - The network client to interact with the network layer from anywhere
-///   within your application.
-///
-/// - The network task driving the network itself.
-///
-/// This will become the core of libp2p integration in Zinnia
-/// and will provide Deno ops to be exposed to JavaScript land.
-///
-pub async fn new() -> Result<(Client, EventLoop), Box<dyn Error>> {
-    // Create a new random public/private key pair
-    // Zinnia will always generate a new key pair on (re)start
-    let id_keys = identity::Keypair::generate_ed25519();
-    let peer_id = id_keys.public().to_peer_id();
-
-    // Setup the transport + multiplex + auth
-    // Zinnia will hard-code this configuration initially.
-    // We need to pick reasonable defaults that will allow Zinnia nodes to interoperate with
-    // as many other libp2p nodes as possible.
-    let tcp_transport = libp2p::dns::TokioDnsConfig::system(libp2p::tcp::tokio::Transport::new(
-        libp2p::tcp::Config::new(),
-    ))
-    .expect("should be able to use system DNS resolver")
-    .upgrade(upgrade::Version::V1)
-    .authenticate(noise::NoiseAuthenticated::xx(&id_keys)?)
-    .multiplex(upgrade::SelectUpgrade::new(
-        yamux::YamuxConfig::default(),
-        libp2p::mplex::MplexConfig::default(),
-    ))
-    .timeout(std::time::Duration::from_secs(5))
-    .boxed();
-
-    // In the initial version, Zinnia nodes ARE NOT dialable.
-    // Each module must connect to a remote server (dial the orchestrator)
-    //
-    // let tcp_listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse()?;
-    // tcp_transport.listen_on(tcp_listen_addr.clone())?;
-
-    // Build the Swarm, connecting the lower layer transport logic with the
-    // higher layer network behaviour logic.
-    let swarm = Swarm::with_tokio_executor(
-        tcp_transport,
-        ComposedBehaviour {
-            zinnia: RequestResponse::new(Default::default()),
-        },
-        peer_id,
-    );
-
-    let (command_sender, command_receiver) = mpsc::channel::<Command>(1);
-
-    Ok((
-        Client {
-            sender: command_sender,
-        },
-        EventLoop::new(swarm, command_receiver),
-    ))
+/// A Zinnia peer node wrapping rust-libp2p and providing higher-level APIs
+/// for consumption by Deno ops.
+pub struct PeerNode {
+    command_sender: mpsc::Sender<Command>,
+    #[allow(unused)]
+    event_loop_task: JoinHandle<()>,
 }
 
-#[derive(Clone)]
-pub struct Client {
-    sender: mpsc::Sender<Command>,
-}
+impl PeerNode {
+    /// Spawns the [`PeerNode`] in a tokio task.
+    ///
+    /// This will create the underlying network client and spawn a tokio task handling
+    /// networking event loop. The returned [`PeerNode`] can be used to control the task.
+    pub async fn spawn() -> Result<PeerNode, Box<dyn Error>> {
+        // Create a new random public/private key pair
+        // Zinnia will always generate a new key pair on (re)start
+        let id_keys = identity::Keypair::generate_ed25519();
+        let peer_id = id_keys.public().to_peer_id();
 
-impl Client {
+        let tcp_transport = create_transport(&id_keys)?;
+
+        // In the initial version, Zinnia nodes ARE NOT dialable.
+        // Each module must connect to a remote server (dial the orchestrator)
+        //
+        // let tcp_listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse()?;
+        // tcp_transport.listen_on(tcp_listen_addr.clone())?;
+
+        // Build the Swarm, connecting the lower layer transport logic with the
+        // higher layer network behaviour logic.
+        let swarm = Swarm::with_tokio_executor(
+            tcp_transport,
+            ComposedBehaviour {
+                zinnia: RequestResponse::new(Default::default()),
+            },
+            peer_id,
+        );
+
+        let (command_sender, command_receiver) = mpsc::channel::<Command>(1);
+
+        let event_loop = EventLoop::new(swarm, command_receiver);
+        let event_loop_task = tokio::spawn(event_loop.run());
+
+        Ok(Self {
+            command_sender,
+            event_loop_task,
+        })
+    }
+
     /// Dial the given peer at the given address.
     pub async fn dial(
         &mut self,
@@ -115,7 +100,7 @@ impl Client {
         peer_addr: Multiaddr,
     ) -> Result<(), Box<dyn Error + Send>> {
         let (sender, receiver) = oneshot::channel();
-        self.sender
+        self.command_sender
             .send(Command::Dial {
                 peer_id,
                 peer_addr,
@@ -132,7 +117,7 @@ impl Client {
         let request_payload = crate::ping::new_request_payload();
         let started = Instant::now();
 
-        self.sender
+        self.command_sender
             .send(Command::Request {
                 peer_id,
                 protocol: crate::ping::PROTOCOL_NAME.into(),
@@ -170,7 +155,7 @@ impl Client {
     ) -> Result<Vec<u8>, Box<dyn Error + Send>> {
         let (sender, receiver) = oneshot::channel();
         self.dial(peer_id, peer_addr).await?;
-        self.sender
+        self.command_sender
             .send(Command::Request {
                 peer_id,
                 protocol: protocol.into(),
@@ -183,7 +168,7 @@ impl Client {
     }
 
     // pub async fn dial_protocol(
-    //     &mut self,
+    //     &self,
     //     peer_id: PeerId,
     //     peer_addr: Multiaddr,
     //     proto_name: &[u8],
@@ -195,7 +180,7 @@ impl Client {
     // }
 
     // pub async fn write_all(
-    //     &mut self,
+    //     &self,
     //     handle: &StreamHandle,
     //     buf: &[u8],
     // ) -> Result<(), Box<dyn Error + Send>> {
@@ -203,14 +188,14 @@ impl Client {
     // }
 
     // pub async fn close_writer(
-    //     &mut self,
+    //     &self,
     //     handle: &mut StreamHandle,
     // ) -> Result<(), Box<dyn Error + Send>> {
     //     todo!("TODO: close writer {:?}", handle)
     // }
 
     // pub async fn read(
-    //     &mut self,
+    //     &self,
     //     handle: &mut StreamHandle,
     //     buf: &[u8],
     // ) -> Result<usize, Box<dyn Error + Send>> {
@@ -218,9 +203,30 @@ impl Client {
     // }
 }
 
-/// A handle representing a substream opened by our network behaviour
-#[derive(Debug)]
-pub struct StreamHandle;
+pub fn create_transport(
+    id_keys: &identity::Keypair,
+) -> Result<transport::Boxed<(PeerId, StreamMuxerBox)>, noise::NoiseError> {
+    // Setup the transport + multiplex + auth
+    // Zinnia will hard-code this configuration initially.
+    // We need to pick reasonable defaults that will allow Zinnia nodes to interoperate with
+    // as many other libp2p nodes as possible.
+    let tcp_transport = libp2p::dns::TokioDnsConfig::system(libp2p::tcp::tokio::Transport::new(
+        libp2p::tcp::Config::new(),
+    ))?
+    .upgrade(upgrade::Version::V1)
+    .authenticate(noise::NoiseAuthenticated::xx(&id_keys)?)
+    .multiplex(upgrade::SelectUpgrade::new(
+        yamux::YamuxConfig::default(),
+        libp2p::mplex::MplexConfig::default(),
+    ))
+    .timeout(std::time::Duration::from_secs(5))
+    .boxed();
+    return Ok(tcp_transport);
+}
+
+// /// A handle representing a substream opened by our network behaviour
+// #[derive(Debug)]
+// pub struct StreamHandle;
 
 pub struct EventLoop {
     swarm: Swarm<ComposedBehaviour>,
