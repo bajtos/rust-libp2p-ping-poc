@@ -3,9 +3,8 @@ use std::time::Instant;
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
 
-use crate::peer::PeerNode;
-
-mod peer;
+pub mod peer;
+use peer::PeerNode;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -111,7 +110,7 @@ async fn main() {
         .expect("should be able to cleanly stop the peer")
 }
 
-pub mod ping {
+mod ping {
     use rand::{distributions, thread_rng, Rng};
 
     use crate::peer::RequestPayload;

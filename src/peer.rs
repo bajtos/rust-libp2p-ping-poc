@@ -441,3 +441,126 @@ enum Command {
     },
     Shutdown,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use libp2p::swarm::DialError;
+    use libp2p::TransportError;
+    use tokio_util::sync::CancellationToken;
+
+    const DEFAULT_TEST_CONFIG: PeerNodeConfig = PeerNodeConfig {
+        connection_keep_alive: Duration::from_secs(1),
+        request_timeout: Duration::from_secs(1),
+    };
+
+    #[tokio::test]
+    async fn requests_ping_protocol() {
+        let cancellation_token = CancellationToken::new();
+
+        let server_id_keys = identity::Keypair::generate_ed25519();
+        let server_peer_id = server_id_keys.public().to_peer_id();
+        let mut server_transport = create_transport(&server_id_keys).unwrap();
+
+        // FIXME: Use an ephemeral port number here.
+        // Listen on port 0, read back the port assigned by the OS
+        let server_addr: Multiaddr = "/ip4/127.0.0.1/tcp/10458".parse().unwrap();
+        server_transport.listen_on(server_addr.clone()).unwrap();
+
+        let mut server_swarm = Swarm::with_tokio_executor(
+            server_transport,
+            libp2p::ping::Behaviour::new(
+                libp2p::ping::Config::new()
+                    .with_max_failures(std::num::NonZeroU32::new(10).unwrap()),
+            ),
+            server_peer_id,
+        );
+        let server_task = {
+            let token = cancellation_token.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        event = server_swarm.next() => println!("Server swarm event: {event:?}"),
+                        _ = token.cancelled() => break,
+                    }
+                }
+                println!("Server shutdown");
+            })
+        };
+
+        let mut peer = PeerNode::spawn(DEFAULT_TEST_CONFIG.clone()).unwrap();
+        peer.dial(server_peer_id, server_addr.clone())
+            .await
+            .expect("Should be able to dial a remote peer.");
+
+        // TODO: find out why the server does not respond to our ping request with Err(Unsupported)
+        // let request = crate::ping::new_request_payload();
+        // let response = peer
+        //     .request_protocol(
+        //         server_peer_id,
+        //         server_addr.clone(),
+        //         libp2p::ping::PROTOCOL_NAME,
+        //         request.clone(),
+        //     )
+        //     .await
+        //     .expect("Should be able to send PING request");
+        // assert_eq!(response, request, "PING response should match the request");
+
+        cancellation_token.cancel();
+        let _ = server_task.await;
+    }
+
+    #[tokio::test]
+    async fn reports_dial_error() {
+        // invalid address (port number 10) with a valid peer id
+        let unreachable_addr = "/ip4/127.0.0.1/tcp/10/p2p/12D3KooWRH71QRJe5vrMp6zZXoH4K7z5MDSWwTXXPriG9dK8HQXk/p2p/12D3KooWRH71QRJe5vrMp6zZXoH4K7z5MDSWwTXXPriG9dK8HQXk";
+
+        let mut peer_addr: Multiaddr = unreachable_addr
+            .parse()
+            .expect("should be able to parse our hard-coded multiaddr");
+
+        let peer_id = match peer_addr.pop() {
+            Some(Protocol::P2p(hash)) => PeerId::from_multihash(hash).expect("Valid PeerId hash."),
+            _ => {
+                panic!("The peer multiaddr should contain peer ID.");
+            }
+        };
+
+        println!("peer_addr: {peer_addr:?}");
+        println!("peer id: {peer_id:?}");
+
+        let mut peer = PeerNode::spawn(DEFAULT_TEST_CONFIG.clone()).unwrap();
+        let result = peer.dial(peer_id, peer_addr).await;
+        let err = result
+            .expect_err("Dial should have failed with an error")
+            .downcast::<DialError>()
+            .expect("Dial should fail with DialError");
+        match *err {
+            DialError::Transport(transport_errs) => {
+                let (addr, err) = transport_errs.first().unwrap();
+                let io_err = match err {
+                    TransportError::Other(io_err) => io_err,
+                    _ => panic!("Unexpected TransportError: {err:?}"),
+                };
+                assert_eq!(io_err.kind(), std::io::ErrorKind::Other);
+                // TODO: figure out how to assert that we have a transport error
+                // with kind: ConnectionRefused
+                // This is what Debug prints for the value:
+                // println!("source: {:?}", io_err.source().unwrap());
+                // A(A(Transport(Os { code: 61, kind: ConnectionRefused, message: "Connection refused" })))
+                // assert_eq!(io_err.kind(), std::io::ErrorKind::ConnectionRefused);
+
+                assert_eq!(addr.to_string(), unreachable_addr);
+
+                if transport_errs.len() > 1 {
+                    panic!(
+                        "Expected exactly one transport error, found {:?}",
+                        transport_errs,
+                    )
+                }
+            }
+            _ => panic!("Unexpected DialError: {err:?}"),
+        }
+    }
+}
