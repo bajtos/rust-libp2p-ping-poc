@@ -28,36 +28,19 @@ async fn main() {
     let mut peer =
         PeerNode::spawn(Default::default()).expect("should be able to create a new peer");
 
-    // 3. Dial a remote peer using a peer_id & remote_addr
+    // 2. Dial a remote peer using a peer_id & remote_addr
     // Zinnia will not register with DHT in the initial version.
+    let started = Instant::now();
     println!("Dialing {peer_id} at {remote_addr}");
     peer.dial(peer_id, remote_addr.clone())
         .await
         .expect("Dial should succeed");
-    println!("Connected!");
-
-    // 4. Request the `ping` protocol.
-    // Real-world modules will invoke different protocols, e.g BitSwap.
-    println!("Sending the first ping request");
-    let result = peer.ping(peer_id).await.expect("Ping should succeeed");
-
-    // 5. Report results
-    println!("Round-trip time: {}ms", result.as_millis());
-
-    // ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️
-    // BUT THAT 👆🏻 IS NOT WHAT WE NEED FOR ZINNIA!
-    // ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️
-    //
-    // We want to drive the behaviour from this main file, as shown below.
-    //
-    // Check out the following Deno example for the rationale behind this API design:
-    // https://github.com/denoland/deno/blob/848e2c0d57febf744ed585702f314dc64bc8b4ae/core/examples/http_bench_json_ops/main.rs
+    println!("Connected in {}ms", started.elapsed().as_millis());
 
     let request = ping::new_request_payload();
 
-    // 1. Send a request to the given peer
+    // 3. Send a request to the given peer
     let started = Instant::now();
-    println!("Sending the second request at {:?}", started);
     let response = peer
         .request_protocol(
             peer_id,
@@ -68,9 +51,8 @@ async fn main() {
         .await
         .expect("request ping protocol should succeed");
     let duration = started.elapsed();
-    println!("Elapsed: {}ms", duration.as_millis());
 
-    // 2. Process the response and report results
+    // 4. Process the response and report results
     if response != request {
         println!(
             "Ping {} payload mismatch. Sent {:?}, received {:?}",
@@ -84,17 +66,15 @@ async fn main() {
 
     let request = ping::new_request_payload();
 
-    // 1. Send a request to the given peer
+    // Send a request to the given peer
     let started = Instant::now();
-    println!("Sending the second request at {:?}", started);
     let response = peer
         .request_protocol(peer_id, remote_addr, ping::PROTOCOL_NAME, request.clone())
         .await
         .expect("request ping protocol should succeed");
     let duration = started.elapsed();
-    println!("Elapsed: {}ms", duration.as_millis());
 
-    // 2. Process the response and report results
+    // Process the response and report results
     if response != request {
         println!(
             "Ping {} payload mismatch. Sent {:?}, received {:?}",

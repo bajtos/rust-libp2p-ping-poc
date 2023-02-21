@@ -21,13 +21,12 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-use libp2p::core::muxing::StreamMuxerBox;
 use std::collections::{hash_map, HashMap};
 use std::error::Error;
-use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
+use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::{transport, upgrade, Multiaddr, PeerId};
 use libp2p::futures::StreamExt;
 use libp2p::identity;
@@ -118,39 +117,6 @@ impl PeerNode {
             .await
             .expect("Command receiver not to be dropped.");
         receiver.await.expect("Sender not to be dropped.")
-    }
-
-    /// Ping the remote peer. You must dial the peer first before calling this method.
-    pub async fn ping(&mut self, peer_id: PeerId) -> Result<Duration, Box<dyn Error + Send>> {
-        let (sender, receiver) = oneshot::channel();
-        let request_payload = crate::ping::new_request_payload();
-        let started = Instant::now();
-
-        self.command_sender
-            .send(Command::Request {
-                peer_id,
-                protocol: crate::ping::PROTOCOL_NAME.into(),
-                payload: request_payload.clone(),
-                sender,
-            })
-            .await
-            .expect("Command receiver not to be dropped.");
-        let response_payload = receiver.await.expect("Sender not be dropped.")?;
-
-        let duration = started.elapsed();
-        if response_payload != request_payload {
-            println!(
-                "Ping {} payload mismatch. Sent {:?}, received {:?}",
-                peer_id, request_payload, response_payload
-            );
-            let err: Box<dyn std::error::Error + std::marker::Send> = Box::new(
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "Ping payload mismatch"),
-            );
-            Err(err)
-        } else {
-            println!("Ping {} completed in {}ms", peer_id, duration.as_millis());
-            Ok(duration)
-        }
     }
 
     // NEW API FOR ZINNIA
@@ -281,13 +247,13 @@ impl EventLoop {
                     RequestResponseEvent::OutboundFailure {
                         request_id,
                         error,
-                        peer,
+                        peer: _,
                     } => {
-                        println!("Cannot request {}: {}", peer, error);
+                        // println!("Cannot request {}: {}", peer, error);
                         let pending_request = self
                             .pending_requests
                             .remove(&request_id)
-                            .expect("Ping request should be still be pending.");
+                            .expect("Request should be still be pending.");
                         pending_request
                             .sender
                             .send(Err(Box::new(error)))
@@ -344,7 +310,9 @@ impl EventLoop {
                 }
             }
             SwarmEvent::IncomingConnectionError { .. } => {}
-            SwarmEvent::Dialing(peer_id) => eprintln!("Dialing {peer_id}"),
+            SwarmEvent::Dialing(_) => {
+                // eprintln!("Dialing {peer_id}");
+            }
             e => panic!("{e:?}"),
         }
     }
@@ -444,11 +412,12 @@ enum Command {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use libp2p::swarm::DialError;
     use libp2p::TransportError;
+    use std::time::Duration;
     use tokio_util::sync::CancellationToken;
+
+    use super::*;
 
     const DEFAULT_TEST_CONFIG: PeerNodeConfig = PeerNodeConfig {
         connection_keep_alive: Duration::from_secs(1),
