@@ -1,9 +1,10 @@
+use std::time::Instant;
+
 use libp2p::core::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
-use tokio::spawn;
 
-mod peer;
-mod ping;
+pub mod peer;
+use peer::PeerNode;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -23,28 +24,83 @@ async fn main() {
 
     // DEMO USAGE OF THE `peer` MODULE
 
-    // 1. Setup the peer
-    let (mut network_client, network_event_loop) = peer::new()
-        .await
-        .expect("should be able to create a new peer");
+    // 1. Setup the peer and spawn the network task for it to run in the background.
+    let mut peer =
+        PeerNode::spawn(Default::default()).expect("should be able to create a new peer");
 
-    // 2. Spawn the network task for it to run in the background.
-    spawn(network_event_loop.run());
-
-    // 3. Dial a remote peer using a peer_id & remote_addr
+    // 2. Dial a remote peer using a peer_id & remote_addr
     // Zinnia will not register with DHT in the initial version.
-    network_client
-        .dial(peer_id, remote_addr)
+    let started = Instant::now();
+    println!("Dialing {peer_id} at {remote_addr}");
+    peer.dial(peer_id, remote_addr.clone())
         .await
         .expect("Dial should succeed");
+    println!("Connected in {}ms", started.elapsed().as_millis());
 
-    // 4. Request the `ping` protocol.
-    // Real-world modules will invoke different protocols, e.g BitSwap.
-    let result = network_client
-        .ping(peer_id)
+    let request = ping::new_request_payload();
+
+    // 3. Send a request to the given peer
+    let started = Instant::now();
+    let response = peer
+        .request_protocol(
+            peer_id,
+            remote_addr.clone(),
+            ping::PROTOCOL_NAME,
+            request.clone(),
+        )
         .await
-        .expect("Ping should succeeed");
+        .expect("request ping protocol should succeed");
+    let duration = started.elapsed();
 
-    // 5. Report results
-    println!("Round-trip time: {}ms", result.as_millis());
+    // 4. Process the response and report results
+    if response != request {
+        println!(
+            "Ping {} payload mismatch. Sent {:?}, received {:?}",
+            peer_id, request, response,
+        );
+    } else {
+        println!("Round-trip time: {}ms", duration.as_millis(),)
+    }
+
+    // TRY AGAIN
+
+    let request = ping::new_request_payload();
+
+    // Send a request to the given peer
+    let started = Instant::now();
+    let response = peer
+        .request_protocol(peer_id, remote_addr, ping::PROTOCOL_NAME, request.clone())
+        .await
+        .expect("request ping protocol should succeed");
+    let duration = started.elapsed();
+
+    // Process the response and report results
+    if response != request {
+        println!(
+            "Ping {} payload mismatch. Sent {:?}, received {:?}",
+            peer_id, request, response,
+        );
+    } else {
+        println!("Round-trip time: {}ms", duration.as_millis(),)
+    }
+
+    // SHUTDOWN
+    peer.shutdown()
+        .await
+        .expect("should be able to cleanly stop the peer")
+}
+
+mod ping {
+    use rand::{distributions, thread_rng, Rng};
+
+    use crate::peer::RequestPayload;
+
+    pub const PROTOCOL_NAME: &[u8] = b"/ipfs/ping/1.0.0";
+    pub const PING_SIZE: usize = 32;
+    pub type PingRequestPayload = [u8; PING_SIZE];
+
+    pub fn new_request_payload() -> RequestPayload {
+        let payload: PingRequestPayload = thread_rng().sample(distributions::Standard);
+        payload.into()
+    }
 }
