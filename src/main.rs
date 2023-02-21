@@ -26,9 +26,8 @@ async fn main() {
     // DEMO USAGE OF THE `peer` MODULE
 
     // 1. Setup the peer and spawn the network task for it to run in the background.
-    let mut peer = PeerNode::spawn()
-        .await
-        .expect("should be able to create a new peer");
+    let mut peer =
+        PeerNode::spawn(Default::default()).expect("should be able to create a new peer");
 
     // 3. Dial a remote peer using a peer_id & remote_addr
     // Zinnia will not register with DHT in the initial version.

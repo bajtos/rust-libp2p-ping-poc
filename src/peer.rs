@@ -45,6 +45,8 @@ use behaviour::{
 };
 pub use behaviour::{RequestPayload, ResponsePayload};
 
+pub type PeerNodeConfig = behaviour::RequestResponseConfig;
+
 /// A Zinnia peer node wrapping rust-libp2p and providing higher-level APIs
 /// for consumption by Deno ops.
 pub struct PeerNode {
@@ -57,7 +59,7 @@ impl PeerNode {
     ///
     /// This will create the underlying network client and spawn a tokio task handling
     /// networking event loop. The returned [`PeerNode`] can be used to control the task.
-    pub async fn spawn() -> Result<PeerNode, Box<dyn Error>> {
+    pub fn spawn(config: PeerNodeConfig) -> Result<PeerNode, Box<dyn Error>> {
         // Create a new random public/private key pair
         // Zinnia will always generate a new key pair on (re)start
         let id_keys = identity::Keypair::generate_ed25519();
@@ -76,7 +78,7 @@ impl PeerNode {
         let swarm = Swarm::with_tokio_executor(
             tcp_transport,
             ComposedBehaviour {
-                zinnia: RequestResponse::new(Default::default()),
+                zinnia: RequestResponse::new(config),
             },
             peer_id,
         );
@@ -372,8 +374,8 @@ impl EventLoop {
                         Ok(()) => {
                             e.insert(sender);
                         }
-                        Err(e) => {
-                            let _ = sender.send(Err(Box::new(e)));
+                        Err(err) => {
+                            let _ = sender.send(Err(Box::new(err)));
                         }
                     }
                 } else {

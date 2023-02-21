@@ -166,8 +166,8 @@ impl fmt::Display for RequestId {
 /// The configuration for a `RequestResponse` protocol.
 #[derive(Debug, Clone)]
 pub struct RequestResponseConfig {
-    request_timeout: Duration,
-    connection_keep_alive: Duration,
+    pub request_timeout: Duration,
+    pub connection_keep_alive: Duration,
 }
 
 impl Default for RequestResponseConfig {
@@ -176,22 +176,6 @@ impl Default for RequestResponseConfig {
             connection_keep_alive: Duration::from_secs(10),
             request_timeout: Duration::from_secs(10),
         }
-    }
-}
-
-impl RequestResponseConfig {
-    /// Sets the keep-alive timeout of idle connections.
-    #[allow(dead_code)]
-    pub fn set_connection_keep_alive(&mut self, v: Duration) -> &mut Self {
-        self.connection_keep_alive = v;
-        self
-    }
-
-    /// Sets the timeout for inbound and outbound requests.
-    #[allow(dead_code)]
-    pub fn set_request_timeout(&mut self, v: Duration) -> &mut Self {
-        self.request_timeout = v;
-        self
     }
 }
 
