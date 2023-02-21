@@ -20,11 +20,6 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-pub mod handler;
-
-pub use handler::{ProtocolInfo, ProtocolName, RequestPayload, ResponsePayload};
-
-use handler::{RequestProtocol, RequestResponseHandler, RequestResponseHandlerEvent};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::swarm::{
     behaviour::{AddressChange, ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm},
@@ -38,6 +33,10 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
+
+pub use super::handler::{ProtocolInfo, ProtocolName, RequestPayload, ResponsePayload};
+
+use super::handler::{RequestProtocol, RequestResponseHandler, RequestResponseHandlerEvent};
 
 /// An inbound request or response.
 #[derive(Debug)]
@@ -655,7 +654,7 @@ impl NetworkBehaviour for RequestResponse {
 /// of empty queues. If the capacity of an empty queue
 /// exceeds this threshold, the associated memory is
 /// released.
-const EMPTY_QUEUE_SHRINK_THRESHOLD: usize = 100;
+pub const EMPTY_QUEUE_SHRINK_THRESHOLD: usize = 100;
 
 /// Internal information tracked for an established connection.
 struct Connection {

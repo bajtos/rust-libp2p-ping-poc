@@ -5,7 +5,6 @@ use libp2p::multiaddr::Protocol;
 use tokio::spawn;
 
 mod peer;
-mod zinnia_request_response;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -117,7 +116,7 @@ async fn main() {
 pub mod ping {
     use rand::{distributions, thread_rng, Rng};
 
-    use crate::zinnia_request_response::RequestPayload;
+    use crate::peer::RequestPayload;
 
     pub const PROTOCOL_NAME: &[u8] = b"/ipfs/ping/1.0.0";
     pub const PING_SIZE: usize = 32;

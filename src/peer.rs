@@ -35,10 +35,13 @@ use libp2p::swarm::{ConnectionHandlerUpgrErr, NetworkBehaviour, Swarm, SwarmEven
 use libp2p::yamux;
 use libp2p::Transport;
 
-use crate::zinnia_request_response::{
-    ProtocolInfo, RequestId, RequestPayload, RequestResponse, RequestResponseEvent,
-    RequestResponseMessage, ResponsePayload,
+mod behaviour;
+mod handler;
+
+use behaviour::{
+    ProtocolInfo, RequestId, RequestResponse, RequestResponseEvent, RequestResponseMessage,
 };
+pub use behaviour::{RequestPayload, ResponsePayload};
 
 /// Creates the network components, namely:
 ///

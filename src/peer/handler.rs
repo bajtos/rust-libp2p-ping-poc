@@ -24,7 +24,7 @@ mod protocol;
 
 pub use self::protocol::{ProtocolInfo, ProtocolName, RequestPayload, ResponsePayload};
 
-use super::{RequestId, EMPTY_QUEUE_SHRINK_THRESHOLD};
+use super::behaviour::{RequestId, EMPTY_QUEUE_SHRINK_THRESHOLD};
 
 use libp2p::swarm::handler::{
     ConnectionEvent, DialUpgradeError, FullyNegotiatedOutbound, ListenUpgradeError,

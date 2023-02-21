@@ -1,7 +1,7 @@
 //! The definition of a request/response protocol via outbound substream
 //! upgrades. The outbound upgrade sends a request and receives a response.
 
-use crate::zinnia_request_response::RequestId;
+use crate::peer::RequestId;
 
 pub use libp2p::core::upgrade::ProtocolName;
 
