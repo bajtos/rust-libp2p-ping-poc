@@ -105,6 +105,11 @@ async fn main() {
     } else {
         println!("Round-trip time: {}ms", duration.as_millis(),)
     }
+
+    // SHUTDOWN
+    peer.shutdown()
+        .await
+        .expect("should be able to cleanly stop the peer")
 }
 
 pub mod ping {

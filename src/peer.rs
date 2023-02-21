@@ -49,8 +49,7 @@ pub use behaviour::{RequestPayload, ResponsePayload};
 /// for consumption by Deno ops.
 pub struct PeerNode {
     command_sender: mpsc::Sender<Command>,
-    #[allow(unused)]
-    event_loop_task: JoinHandle<()>,
+    event_loop_task: Option<JoinHandle<()>>,
 }
 
 impl PeerNode {
@@ -89,8 +88,16 @@ impl PeerNode {
 
         Ok(Self {
             command_sender,
-            event_loop_task,
+            event_loop_task: event_loop_task.into(),
         })
+    }
+
+    pub async fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+        if let Some(handle) = self.event_loop_task.take() {
+            self.command_sender.send(Command::Shutdown).await?;
+            handle.await?
+        }
+        Ok(())
     }
 
     /// Dial the given peer at the given address.
@@ -256,7 +263,7 @@ impl EventLoop {
                 command = self.command_receiver.recv() => match command {
                     Some(c) => self.handle_command(c).await,
                     // Command channel closed, thus shutting down the network event loop.
-                    None=>  return,
+                    None =>  break,
                 },
             }
         }
@@ -388,6 +395,11 @@ impl EventLoop {
                 self.pending_requests
                     .insert(request_id, PendingRequest { sender });
             }
+
+            Command::Shutdown => {
+                // println!("shutting down the event loop");
+                self.command_receiver.close();
+            }
         }
     }
 }
@@ -425,4 +437,5 @@ enum Command {
         payload: RequestPayload,
         sender: oneshot::Sender<Result<ResponsePayload, Box<dyn Error + Send>>>,
     },
+    Shutdown,
 }
